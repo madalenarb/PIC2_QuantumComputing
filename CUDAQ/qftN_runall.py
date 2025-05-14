@@ -84,8 +84,8 @@ if __name__ == "__main__":
     print(f"Detected NVIDIA GPUs   : {gpu_count}")
 
     records = []
-    # Benchmark each target with its specific max qubit count
-    target = "qpp-cpu"    # "nvidia" or "qpp-cpu"
+    # get target from command line argument or default to CPU
+    target = sys.argv[2] if len(sys.argv) > 2 else "nvidia"
     max_bits = 28 if target == "nvidia" else 23
     cudaq.set_target(target)
     print(f"\nBackend target: {target}")

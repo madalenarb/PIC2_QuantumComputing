@@ -89,6 +89,7 @@ if __name__ == "__main__":
 
     # Export to 2 CSVs nvidia and qpp-cpu
     df = pd.DataFrame(records)
-    df.to_csv(f"benchmark_qft_qiskit_{shots}.csv", index=False)
-    print(f"Results exported to benchmark_qft_qiskit_{shots}.csv")
+    name_file = "benchmark_qft_qiskit.csv"
+    df.to_csv(os.path.join("Results", name_file), index=False)
+    print(f"Results exported to {name_file}")
 
