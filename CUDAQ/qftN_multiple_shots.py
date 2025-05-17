@@ -72,21 +72,16 @@ def run_benchmark(n_bits, target, shots=1024):
     return (t_end - t_start, l2_norm)
 
 if __name__ == "__main__":
-    # Number of shots (default 1024)
-    shots = int(sys.argv[1]) if len(sys.argv) > 1 else 1024
-
     # Detect and report resources
     cpu_count = get_cpu_count()
     print(f"Detected logical CPU cores: {cpu_count}")
     # For CUDA-Q target, query available GPUs
-    cudaq.set_target("nvidia")
     gpu_count = cudaq.num_available_gpus()
     print(f"Detected NVIDIA GPUs   : {gpu_count}")
 
     records = []
-    # get target from command line argument or default to CPU
-    target = sys.argv[2] if len(sys.argv) > 2 else "nvidia"
-    max_bits = 28 if target == "nvidia" else 23
+    target = "nvidia"
+    max_bits = 28 if target == "nvidia" else 22
     cudaq.set_target(target)
     print(f"\nBackend target: {target}")
     # Report per-target resource usage
@@ -94,22 +89,26 @@ if __name__ == "__main__":
         print(f"Using CPU cores: {cpu_count}")
     else:
         print(f"Using GPUs: {gpu_count}")
-
-    for n_bits in range(3, max_bits + 1):
-        sim_time, l2 = run_benchmark(n_bits, target, shots)
-        print(f"  {n_bits:2d} qubits -> time: {sim_time:.6f}s, L2 norm: {l2:.3e}")
-        records.append({
-            "target": target,
-            "n_bits": n_bits,
-            "shots": shots,
-            "sim_time_s": sim_time,
-            "l2_norm": l2
-        })
+    # shots list with from 2**12 which is 4096 to 2**30 which is 1073741824
+    shots_list = [2**i for i in range(11, 19)]
+    for shots in shots_list:
+        print(f"\nRunning benchmark with {shots} shots")
+        for n_bits in range(10, max_bits + 1):
+            sim_time, l2 = run_benchmark(n_bits, target, shots)
+            print(f"  {n_bits:2d} qubits -> time: {sim_time:.6f}s, L2 norm: {l2:.3e}")
+            records.append({
+                "target": target,
+                "n_bits": n_bits,
+                "shots": shots,
+                "sim_time_s": sim_time,
+                "l2_norm": l2
+            })
 
     # Create 2 dataframes and export to CSV
     df = pd.DataFrame([r for r in records if r["target"] == target])
-    # Export to results directory
+    name_file = f"qftN_{target}_multiple_shots.csv"
     results_dir = os.path.join(os.path.dirname(__file__), "results")
-    name_file = f"benchmark_qft_{target}.csv"
+    os.makedirs(results_dir, exist_ok=True)
     df.to_csv(os.path.join(results_dir, name_file), index=False)
+    print(f"Results exported to {name_file}")
     print(f"Results exported to {os.path.join(results_dir, name_file)}")

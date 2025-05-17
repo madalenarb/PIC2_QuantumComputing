@@ -1,0 +1,109 @@
+target,n_bits,shots,sim_time_s,l2_norm
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",3,1024,0.06519411599947489,0.017026948998205758
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",4,1024,0.048798392999742646,0.022226184915509848
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",5,1024,0.05910468799993396,0.02850492093618442
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",6,1024,0.07306614699973579,0.02887059667791891
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",7,1024,0.11968027500006428,0.031066354923021223
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",8,1024,0.1560754439997254,0.03054003080295291
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",9,1024,0.22400443500009715,0.031341419015392995
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",10,1024,0.22645809299956454,0.03158390943124263
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",11,1024,0.32990805900044506,0.03152346170228315
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",12,1024,0.4680964839999433,0.031219467506144103
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",13,1024,9.478018910000173,0.03276945651477054
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",14,1024,10.967014437000216,0.033432114782468145
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",15,1024,12.97542746199997,0.0342493709311527
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",16,1024,15.162781721000101,0.03455430861905104
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",17,1024,28.850376192999647,0.035237536235681086
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",18,1024,97.35255680499995,0.03515625
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",19,1024,46.683521140000266,0.03531863539067407
+"Target tensornet
+	simulator=tensornet
+	platform=default
+	description=cutensornet simulator backend target based on full tensor network contraction
+	precision=fp64
+",20,1024,970.1410599010005,0.035224001556389516
