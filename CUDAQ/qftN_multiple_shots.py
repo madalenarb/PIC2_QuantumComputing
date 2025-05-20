@@ -80,8 +80,8 @@ if __name__ == "__main__":
     print(f"Detected NVIDIA GPUs   : {gpu_count}")
 
     records = []
-    target = "nvidia"
-    max_bits = 28 if target == "nvidia" else 22
+    target = "qpp-cpu"
+    max_bits = 28 if target == "nvidia" else 23
     cudaq.set_target(target)
     print(f"\nBackend target: {target}")
     # Report per-target resource usage
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     else:
         print(f"Using GPUs: {gpu_count}")
     # shots list with from 2**12 which is 4096 to 2**30 which is 1073741824
-    shots_list = [2**i for i in range(11, 19)]
+    shots_list = [2**i for i in range(11, 20)]
     for shots in shots_list:
         print(f"\nRunning benchmark with {shots} shots")
         for n_bits in range(10, max_bits + 1):

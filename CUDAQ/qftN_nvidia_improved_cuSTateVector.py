@@ -74,7 +74,7 @@ def run_benchmark(n_bits, target, shots=1024, compute_l2=True):
 
 if __name__ == "__main__":
     # Number of shots (default 1024)
-    shots = int(sys.argv[1]) if len(sys.argv) > 1 else 2048
+    shots = 16384
 
     # Detect and report resources
     cpu_count = get_cpu_count()
@@ -87,7 +87,7 @@ if __name__ == "__main__":
     target = "tensornet"  # "qpp-cpu", "qpp-gpu", "tensornet", "nvidia"
 
     cudaq.set_target(target)
-    max_bits = 30
+    max_bits = 25
     compute_l2 = True
 
     print(f"\nBackend target: {target}")
@@ -108,21 +108,20 @@ if __name__ == "__main__":
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
 
-    # Run benchmarks, appending and printing each record immediately
+    # Run benchmarks
     for n_bits in range(3, max_bits + 1):
+        print(f"\nRunning benchmark with {shots} shots")
         sim_time, l2 = run_benchmark(n_bits, target, shots, compute_l2)
-        record = {
-            "target": target,
-            "n_bits": n_bits,
-            "shots": shots,
-            "sim_time_s": sim_time,
-            "l2_norm": l2
-        }
-        # Print the detailed record
-        print(f"Processed {n_bits:2d}-qubit run → {record}")
-        # Append to CSV
+        print(f"  {n_bits:2d} qubits -> time: {sim_time:.6f}s, L2 norm: {l2:.3e}")
+
+        # Write each record incrementally
         with open(csv_path, 'a', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writerow(record)
-
-    print(f"All results written incrementally to {csv_path}")
+            writer.writerow({
+                "target": target,
+                "n_bits": n_bits,
+                "shots": shots,
+                "sim_time_s": sim_time,
+                "l2_norm": l2
+            })
+    print(f"Results written to {csv_path}")

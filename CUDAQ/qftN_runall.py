@@ -73,7 +73,7 @@ def run_benchmark(n_bits, target, shots=1024):
 
 if __name__ == "__main__":
     # Number of shots (default 1024)
-    shots = int(sys.argv[1]) if len(sys.argv) > 1 else 1024
+    shots = 16384 
 
     # Detect and report resources
     cpu_count = get_cpu_count()
