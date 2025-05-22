@@ -43,9 +43,9 @@ def ideal_qft_state(n_bits):
 
 # ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    shots         = 16_384
+    shots         = 16384
     target        = "density-matrix-cpu"
-    max_bits      = 8
+    max_bits      = 12
     probabilities = [0.01, 0.1, 0.5, 0.9, 1.0]
 
     # noise channels to test
@@ -67,60 +67,68 @@ if __name__ == "__main__":
 
     records = []
 
-    for p in probabilities:
-        # build a dict noise_name → KrausChannel or None
-        channels = {"none": None}
-        for name, ctor in channel_ctors.items():
-            channels[name] = ctor(p)
+# ─── 1. Run 'none' case only once with p=0 ───────────────────────────
+channels = {"none": None}
+for noise_name, chan in channels.items():
+    for n in range(3, max_bits+1):
+        kern = make_qft_kernel(n)
+        sim_time_s, l2_pop = sample_l2_pop(kern, shots, None, n)
+        rho_ideal = IDEAL_RHO[n]
+        psi_ideal = IDEAL_PSI[n]
+        rho_noisy = np.array(cudaq.get_state(kern))
+        fro_norm = np.linalg.norm(rho_noisy - rho_ideal)
+        fidelity = float((psi_ideal.conj() @ rho_noisy @ psi_ideal).real)
+        records.append({
+            "n_bits":     n,
+            "shots":      shots,
+            "noise":      noise_name,
+            "probability": 0.0,
+            "time_sampling": sim_time_s,
+            "l2_pop":     l2_pop,
+            "time_density": sim_time_s,
+            "fro_norm":   fro_norm,
+            "fidelity":   fidelity
+        })
+        print(f"p=0.0 {noise_name:16s} n={n:2d} "
+              f"t={sim_time_s:.3f}s  L2_pop={l2_pop:.3e}  "
+              f"Fro={fro_norm:.3e}  F={fidelity:.4f}")
 
-        for noise_name, chan in channels.items():
-            # build a NoiseModel if chan is not None
-            nm = None
-            if chan is not None:
-                nm = cudaq.NoiseModel()
-                # inject this channel after every H on each qubit
-                for q in range(max_bits):
-                    nm.add_channel('h', [q], chan)
+    # ─── 2. Now run all other noise types across all p values ────────────
+    for p in probabilities:
+        for name, ctor in channel_ctors.items():
+            chan = ctor(p)
+            nm = cudaq.NoiseModel()
+            for q in range(max_bits):
+                nm.add_channel('h', [q], chan)
 
             for n in range(3, max_bits+1):
                 kern = make_qft_kernel(n)
-
-                # 1) sampling → population L2
                 sim_time_s, l2_pop = sample_l2_pop(kern, shots, nm, n)
-
-                # 2) ideal density matrix
                 rho_ideal = IDEAL_RHO[n]
                 psi_ideal = IDEAL_PSI[n]
-
-                # 3) noisy density matrix via global noise
-                if nm is not None:
-                    cudaq.set_noise(nm)
+                cudaq.set_noise(nm)
                 rho_noisy = np.array(cudaq.get_state(kern))
-                if nm is not None:
-                    cudaq.unset_noise()
-
-                # 4) compute Frobenius norm & fidelity
+                cudaq.unset_noise()
                 fro_norm = np.linalg.norm(rho_noisy - rho_ideal)
                 fidelity = float((psi_ideal.conj() @ rho_noisy @ psi_ideal).real)
-
-                # record
                 records.append({
                     "n_bits":     n,
-                    "Probability": p,
-                    "noise":       noise_name,
-                    "sim_time_s":  sim_time_s,
-                    "l2_pop":      l2_pop,
-                    "fro_norm":    fro_norm,
-                    "fidelity":    fidelity
+                    "shots":      shots,
+                    "noise":      name,
+                    "probability": p,
+                    "time_sampling": sim_time_s,
+                    "l2_pop":     l2_pop,
+                    "time_density": sim_time_s,
+                    "fro_norm":   fro_norm,
+                    "fidelity":   fidelity
                 })
-
-                print(f"p={p:<4} {noise_name:16s} n={n:2d} "
-                      f"t={sim_time_s:.3f}s  L2_pop={l2_pop:.3e}  "
-                      f"Fro={fro_norm:.3e}  F={fidelity:.4f}")
+                print(f"p={p:<4} {name:16s} n={n:2d} "
+                    f"t={sim_time_s:.3f}s  L2_pop={l2_pop:.3e}  "
+                    f"Fro={fro_norm:.3e}  F={fidelity:.4f}")
 
     # save as long-format CSV
     df = pd.DataFrame(records)
     os.makedirs("results", exist_ok=True)
-    out_csv = f"results/qft_noise_all_probs_{shots}_shots.csv"
+    out_csv = f"results/qft_noise_all_probs_{shots}_shots_3.csv"
     df.to_csv(out_csv, index=False)
     print(f"\nSaved results to {out_csv}")

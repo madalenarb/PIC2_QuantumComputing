@@ -61,7 +61,7 @@ def run_benchmark(n_bits, simulator, shots, use_gpu=False):
 
 if __name__ == "__main__":
     # CLI args
-    shots = [2**i for i in range(11, 20)]
+    shots = [2**i for i in range(10, 20)]
     max_qubits = 28
 
     # Detect CPU count
@@ -75,7 +75,7 @@ if __name__ == "__main__":
     records = []
     for num_shots in shots:
         print(f"Running QFT with {num_shots} shots")
-        for n_bits in range(10, max_qubits + 1):
+        for n_bits in range(3, max_qubits + 1):
             elapsed, l2_err = run_benchmark(
                 n_bits, simulator, num_shots
             )

@@ -85,7 +85,7 @@ if __name__ == "__main__":
 
     records = []
     # get target from command line argument or default to CPU
-    target = sys.argv[2] if len(sys.argv) > 2 else "nvidia"
+    target = sys.argv[1] if len(sys.argv) > 1 else "nvidia"
     max_bits = 28 if target == "nvidia" else 23
     cudaq.set_target(target)
     print(f"\nBackend target: {target}")
@@ -110,6 +110,6 @@ if __name__ == "__main__":
     df = pd.DataFrame([r for r in records if r["target"] == target])
     # Export to results directory
     results_dir = os.path.join(os.path.dirname(__file__), "results")
-    name_file = f"benchmark_qft_{target}.csv"
+    name_file = f"benchmark_qft_{target}_{shots}_shots.csv"
     df.to_csv(os.path.join(results_dir, name_file), index=False)
     print(f"Results exported to {os.path.join(results_dir, name_file)}")
