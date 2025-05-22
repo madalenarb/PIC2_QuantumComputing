@@ -43,7 +43,7 @@ def ideal_qft_state(n_bits):
 
 # ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    shots         = 16384
+    shots         = 262144
     target        = "density-matrix-cpu"
     max_bits      = 12
     probabilities = [0.01, 0.1, 0.5, 0.9, 1.0]

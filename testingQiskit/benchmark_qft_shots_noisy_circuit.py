@@ -72,8 +72,8 @@ def make_noise(name: str, p: float) -> NoiseModel:
     return nm
 
 if __name__ == "__main__":
-    max_qubits = int(sys.argv[1]) if len(sys.argv)>1 else 8
-    shots      = 16384
+    max_qubits = 12
+    shots      = 262144
     cpu_cores  = os.cpu_count() or 1
 
     # precompute ideal density matrices & statevectors
