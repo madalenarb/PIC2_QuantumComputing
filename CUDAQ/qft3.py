@@ -19,7 +19,6 @@ def qft3():
     h(q[2])
     swap(q[0], q[2])
 
-
 def run_sampling(kernel, shots: int):
     """Run the quantum kernel and return result counts."""
     return cudaq.sample(kernel, shots_count=shots)
@@ -45,7 +44,7 @@ def print_distribution(probs: dict, ideal: float):
 # Main execution
 # --------------------------------------------------------------------
 if __name__ == "__main__":
-    TARGET = "qpp-cpu"  # "nvidia"
+    TARGET = "qpp-cpu"  # or "nvidia" for GPU
     SHOTS = 4096
 
     cudaq.set_target(TARGET)  
@@ -55,7 +54,11 @@ if __name__ == "__main__":
     print("\nQuantum Circuit for 3-Qubit QFT:")
     print(cudaq.draw(qft3))
 
-    # Run sampling
+    # ── Warm-up ──
+    # Trigger JIT compilation and backend initialization (32 small shots)
+    _ = run_sampling(qft3, 32)
+
+    # ── Main sampling run ──
     counts = run_sampling(qft3, SHOTS)
     probs = get_probabilities(counts)
 

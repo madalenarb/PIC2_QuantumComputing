@@ -21,13 +21,18 @@ def make_qft_kernel(n_bits):
     return qft
 
 # ───────────────────────────────────────────────────────────────────────
-# Population-L2 error from sampling
+# Population-L2 error from sampling (with warm-up)
 # ───────────────────────────────────────────────────────────────────────
 def sample_l2_pop(kern, shots, noise_model, n_bits):
+    # ── Warm-up for JIT & GPU/CPU context (32 shots) ──
+    cudaq.sample(kern, shots_count=32, noise_model=noise_model)
+
+    # ── Timed sampling ──
     t0 = time.perf_counter()
     counts = cudaq.sample(kern, shots_count=shots, noise_model=noise_model)
     t1 = time.perf_counter()
-    probs = {s: c/sum(counts.values()) for s, c in counts.items()}
+
+    probs = {s: c / sum(counts.values()) for s, c in counts.items()}
     N = 2**n_bits
     l2 = math.sqrt(max(sum(p*p for p in probs.values()) - 1/N, 0.0))
     return (t1 - t0, l2)
@@ -67,29 +72,29 @@ if __name__ == "__main__":
 
     records = []
 
-# ─── 1. Run 'none' case only once with p=0 ───────────────────────────
-channels = {"none": None}
-for noise_name, chan in channels.items():
+    # ─── 1. Run 'none' case only once with p=0 ───────────────────────────
     for n in range(3, max_bits+1):
         kern = make_qft_kernel(n)
         sim_time_s, l2_pop = sample_l2_pop(kern, shots, None, n)
+
         rho_ideal = IDEAL_RHO[n]
         psi_ideal = IDEAL_PSI[n]
         rho_noisy = np.array(cudaq.get_state(kern))
-        fro_norm = np.linalg.norm(rho_noisy - rho_ideal)
-        fidelity = float((psi_ideal.conj() @ rho_noisy @ psi_ideal).real)
+        fro_norm  = np.linalg.norm(rho_noisy - rho_ideal)
+        fidelity  = float((psi_ideal.conj() @ rho_noisy @ psi_ideal).real)
+
         records.append({
-            "n_bits":     n,
-            "shots":      shots,
-            "noise":      noise_name,
+            "n_bits":      n,
+            "shots":       shots,
+            "noise":       "none",
             "probability": 0.0,
             "time_sampling": sim_time_s,
-            "l2_pop":     l2_pop,
+            "l2_pop":      l2_pop,
             "time_density": sim_time_s,
-            "fro_norm":   fro_norm,
-            "fidelity":   fidelity
+            "fro_norm":    fro_norm,
+            "fidelity":    fidelity
         })
-        print(f"p=0.0 {noise_name:16s} n={n:2d} "
+        print(f"p=0.0 none          n={n:2d} "
               f"t={sim_time_s:.3f}s  L2_pop={l2_pop:.3e}  "
               f"Fro={fro_norm:.3e}  F={fidelity:.4f}")
 
@@ -104,27 +109,30 @@ for noise_name, chan in channels.items():
             for n in range(3, max_bits+1):
                 kern = make_qft_kernel(n)
                 sim_time_s, l2_pop = sample_l2_pop(kern, shots, nm, n)
+
                 rho_ideal = IDEAL_RHO[n]
                 psi_ideal = IDEAL_PSI[n]
                 cudaq.set_noise(nm)
                 rho_noisy = np.array(cudaq.get_state(kern))
                 cudaq.unset_noise()
-                fro_norm = np.linalg.norm(rho_noisy - rho_ideal)
-                fidelity = float((psi_ideal.conj() @ rho_noisy @ psi_ideal).real)
+
+                fro_norm  = np.linalg.norm(rho_noisy - rho_ideal)
+                fidelity  = float((psi_ideal.conj() @ rho_noisy @ psi_ideal).real)
+
                 records.append({
-                    "n_bits":     n,
-                    "shots":      shots,
-                    "noise":      name,
+                    "n_bits":      n,
+                    "shots":       shots,
+                    "noise":       name,
                     "probability": p,
                     "time_sampling": sim_time_s,
-                    "l2_pop":     l2_pop,
+                    "l2_pop":      l2_pop,
                     "time_density": sim_time_s,
-                    "fro_norm":   fro_norm,
-                    "fidelity":   fidelity
+                    "fro_norm":    fro_norm,
+                    "fidelity":    fidelity
                 })
                 print(f"p={p:<4} {name:16s} n={n:2d} "
-                    f"t={sim_time_s:.3f}s  L2_pop={l2_pop:.3e}  "
-                    f"Fro={fro_norm:.3e}  F={fidelity:.4f}")
+                      f"t={sim_time_s:.3f}s  L2_pop={l2_pop:.3e}  "
+                      f"Fro={fro_norm:.3e}  F={fidelity:.4f}")
 
     # save as long-format CSV
     df = pd.DataFrame(records)

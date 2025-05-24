@@ -17,6 +17,8 @@ def bell_state(qubit_count: int):
 
 # Call the kernel and sample results
 qubit_count = 2
+# ── Warm-up run (32 shots) ──
+_ = cudaq.sample(bell_state, qubit_count, shots_count=32)
 print(cudaq.draw(bell_state, qubit_count))
 results = cudaq.sample(bell_state, qubit_count)
 # Should see a roughly 50/50 distribution between the |00> and

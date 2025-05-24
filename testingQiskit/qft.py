@@ -1,81 +1,58 @@
-#!/usr/bin/env python3
-"""
-Raw-speed benchmark for Qiskit Aer
-==================================
-
-• Can run on CPU (default) or NVidia GPU if qiskit-aer-gpu is installed
-• No noise model
-• Sweeps qubits  = START … STOP       (default 6 … 30)
-• Runs <SHOTS> executions per size    (default 2 048)
-• Prints shots/s so you can eyeball saturation
-
-Requires:  qiskit  >= 1.0,  qiskit-aer >= 0.13
-"""
-
-import math, time, sys, argparse, os
-
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
+from time import perf_counter
+from math import pi
+import importlib.util
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument("-s", "--start", type=int, default=6,   help="min #qubits")
-parser.add_argument("-e", "--end",   type=int, default=25,  help="max #qubits (inclusive)")
-parser.add_argument("-n", "--shots", type=int, default=2048,help="#shots per circuit")
-parser.add_argument("--gpu", action="store_true",           help="try GPU backend")
-args = parser.parse_args()
-
-START, STOP, SHOTS = args.start, args.end, args.shots
-
-
-# ── 1)  Pick Aer backend (GPU preferred if flag & available) ─────────
-if args.gpu:
-    try:
-        backend = AerSimulator(method="statevector", device="GPU")
-        DEVICE  = "GPU"
-    except AerError as err:
-        print("⚠️  GPU simulator unavailable – falling back to CPU\n", file=sys.stderr)
-        backend = AerSimulator(method="statevector", device="CPU")
-        DEVICE  = "CPU"
-else:
-    backend = AerSimulator(method="statevector", device="CPU")
-    DEVICE  = "GPU"
-
-
-# ── 2)  QFT circuit factory ──────────────────────────────────────────
-def qft_circuit(n: int) -> QuantumCircuit:
-    qc = QuantumCircuit(n)
-    # Hadamard + controlled-phase staircase
-    for k in range(n):
-        qc.h(k)
-        for j in range(k + 1, n):
-            angle = math.pi / (2 ** (j - k))
-            qc.cp(angle, k, j)
-    # bit-reversal swaps
-    for i in range(n // 2):
-        qc.swap(i, n - 1 - i)
+def qft_circuit(n_qubits: int) -> QuantumCircuit:
+    qc = QuantumCircuit(n_qubits)
+    for j in range(n_qubits):
+        qc.h(j)
+        for k in range(j+1, n_qubits):
+            qc.cp(pi / (2 ** (k - j)), k, j)
+    qc.reverse_bits()
     qc.measure_all()
     return qc
 
+def is_aer_gpu_installed() -> bool:
+    spec = importlib.util.find_spec("qiskit_aer")
+    if spec and spec.submodule_search_locations:
+        return any("gpu" in loc.lower() for loc in spec.submodule_search_locations)
+    return False
 
-# benchmark loop 
-hdr = f"  q | shots |    sec |   shots/s | backend={DEVICE}"
-print(hdr)
-print("-" * len(hdr))
+def detect_gpu_backend(backend) -> str:
+    config = backend.configuration()
+    return getattr(config, "device", "CPU").upper()
 
-for n in range(START, STOP + 1):
-    circ   = qft_circuit(n)
-    t_circ = transpile(circ, backend, optimization_level=1)
+if __name__ == "__main__":
+    START, STOP = 3, 28
+    SHOTS = 131072
 
-    # warm-up / jit-compile
-    backend.run(t_circ, shots=32).result()
+    try:
+        backend = AerSimulator(method="statevector", device="GPU")
+        DEVICE = detect_gpu_backend(backend)
+    except Exception:
+        backend = AerSimulator(method="statevector")
+        DEVICE = detect_gpu_backend(backend)
 
-    t0 = time.perf_counter()
-    backend.run(t_circ, shots=SHOTS).result()
-    dt = time.perf_counter() - t0
+    if is_aer_gpu_installed():
+        DEVICE = "GPU"
 
-    print(f"{n:3d} | {SHOTS:5d} | {dt:6.3f} | {SHOTS/dt:9.1f}")
+    # Print header
+    print(f"  q | shots   |   sec  |  shots/s  | backend={DEVICE}")
+    print("-" * 50)
 
+    for n in range(START, STOP + 1):
+        qc = qft_circuit(n)
+        transpiled_qc = transpile(qc, backend, optimization_level=1)
 
+        # Warm-up run to avoid JIT overhead in timing
+        backend.run(transpiled_qc, shots=32).result()
 
+        t0 = perf_counter()
+        backend.run(transpiled_qc, shots=SHOTS).result()
+        t1 = perf_counter()
 
+        elapsed = t1 - t0
+        throughput = SHOTS / elapsed if elapsed > 0 else 0
+        print(f"{n:3d} | {SHOTS:7d} | {elapsed:6.3f} | {throughput:9.1f}")

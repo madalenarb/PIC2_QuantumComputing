@@ -86,6 +86,7 @@ def make_qft_kernel(n_bits):
             swap(q[i], q[n_bits-i-1])
     return qft
 
+
 def l2_norm(counts, n_bits):
     total = sum(counts.values())
     probs = [v/total for v in counts.values()]
@@ -97,6 +98,9 @@ def l2_norm(counts, n_bits):
 def run_benchmark(n_bits, target, shots=1024, monitor_gpu=False):
     cudaq.set_target(target)
     kernel = make_qft_kernel(n_bits)
+
+    # ── Warm-up: trigger JIT / context creation ──
+    _ = cudaq.sample(kernel, shots_count=32)
 
     if monitor_gpu and target == "nvidia":
         with GPUUtilMonitor() as mon:
@@ -121,7 +125,7 @@ if __name__ == "__main__":
     print(f"NVIDIA GPUs       : {get_gpu_count()}")
 
     rows = []
-    for target, max_bits in [("qpp-cpu", 23), ("nvidia", 28)]:
+    for target, max_bits in [("qpp-cpu", 5), ("nvidia", 28)]:
         print(f"\n### Target: {target}")
         for n_bits in range(3, max_bits+1):
             t, l2, core, mem_pct, mem_mib = run_benchmark(

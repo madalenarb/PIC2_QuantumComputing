@@ -80,13 +80,18 @@ if __name__ == "__main__":
     print("Circuit:")
     print(cudaq.draw(qft3))
 
-    # No‐noise run
+    # ── Warm-up ──
+    # Run a quick 32-shot sample to JIT-compile and initialize the GPU/CPU backend
+    _ = run_sampling(qft3, 32)  
+    _ = run_sampling(qft3, 32, noise_model=noise_model)
+
+    # No-noise run
     counts_i = run_sampling(qft3, SHOTS, noise_model=None)
     probs_i  = get_probabilities(counts_i)
     print("\n=== No Noise ===")
     L2_i = print_distribution(probs_i, 1/8)
 
-    # With‐noise run
+    # With-noise run
     counts_n = run_sampling(qft3, SHOTS, noise_model=noise_model)
     probs_n  = get_probabilities(counts_n)
     print(f"\n=== With Noise ({noise_name}, p={p}) ===")

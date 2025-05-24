@@ -1,140 +1,296 @@
 #!/usr/bin/env python3
 """
-plot_non_noise_analysis.py — Combined L2‐error & runtime analysis for QFT (noiseless)
-=================================================================================
+plot_qft_no_noise.py — QFT Benchmark Analysis (noiseless)
+=========================================================
 Generates:
-  - Side‐by‐side plots of L2 error and simulation time vs. qubit count
-  - Summary table of mean L2 error and mean time per shot count
-  - Saves PNGs into a "graphs" subdirectory under the script directory, named by target
-"""
 
-from __future__ import annotations
-import sys
-import pandas as pd
-import matplotlib.pyplot as plt
+  • Per‐target side‐by‐side L2 error & sim‐time vs. qubit count
+  • A multi‐target L2‐error & sim‐time comparison at a fixed shot count
+  • A comparison of all targets across each shot count
+  • Prints out per‐target and per-shot summary tables
+  • All plots go into ./graphs/
+
+Usage:
+
+  # default: per‐target, using DEFAULT_SHOTS
+  python3 plot_non_noise_analysis.py
+
+  # compare ALL targets at SHOT=131072
+  python3 plot_non_noise_analysis.py --multi 131072
+
+  # per‐target across default shots + compare all targets per shot
+  python3 plot_non_noise_analysis.py
+
+  # per‐target across custom shots + compare all targets per shot
+  python3 plot_non_noise_analysis.py 2048 8192 65536
+
+"""
+import argparse
 from pathlib import Path
 from typing import List
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Constants
-# ──────────────────────────────────────────────────────────────────────────────
+import pandas as pd
+import matplotlib.pyplot as plt
 
-# Base directory (script location)
+# ──────────────────────────────────────────────────────────────────────────────
+# Configuration
+# ──────────────────────────────────────────────────────────────────────────────
 BASE = Path(__file__).parent
-# Input CSV (treated no-noise data)
 DATA_CSV = BASE / "data_csv" / "treated_data" / "qft_merged_no_noise.csv"
-# Output directory for graphs
-GRAPH_DIR = BASE / "graphs"
-GRAPH_DIR.mkdir(parents=True, exist_ok=True)
+GRAPH_DIR = BASE / "graphs/no_noise"
+GRAPH_DIR.mkdir(exist_ok=True)
 
-# Colors per simulator target
-TARGET_COLORS: dict[str, str] = {
+TARGETS = ["cudaq-cpu", "cudaq-gpu", "qiskit-aer"]
+
+COLORS = {
     "cudaq-cpu":  "tab:blue",
     "cudaq-gpu":  "tab:orange",
     "qiskit-aer": "tab:green",
 }
 
-# Marker & linestyle per shot count
-SHOT_STYLES: dict[int, tuple[str, str]] = {
-    1024:   ("o", "-"),
-    2048:   ("s", "--"),
-    4096:   ("^", "-."),
-    8192:   ("D", ":"),
-    16384:  ("*", "-"),
-    32768:  ("P", "--"),
-    65536:  ("X", "-"),
-    131072:("h", ":"),
-    262144:("H", "--"),
-    524288:("v", "-"),
-    1048576:("p", ":"),
+SHOT_STYLES = {
+    1024:    ("o", "-"),
+    2048:    ("s", "--"),
+    4096:    ("^", "-."),
+    8192:    ("D", ":"),
+    16384:   ("*", "-"),
+    32768:   ("P", "--"),
+    65536:   ("X", "-"),
+    131072:  ("h", ":"),
+    262144:  ("H", "--"),
+    524288:  ("v", "-"),
+    1048576: ("p", ":"),
 }
 
-# Default shots to analyze
 DEFAULT_SHOTS: List[int] = [4096, 16384, 65536, 131072, 262144, 524288]
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Plotting functions
+# Plotting Helpers
 # ──────────────────────────────────────────────────────────────────────────────
+def plot_pair(ax_l2, ax_time, df: pd.DataFrame, *,
+              label: str, color: str, marker: str, linestyle: str):
+    """Plot a single (target@shots) line on both subplots, with explicit labels."""
+    ax_l2.plot(
+        df.n_bits, df.l2_error,
+        label=label,
+        color=color,
+        marker=marker,
+        linestyle=linestyle
+    )
+    ax_time.plot(
+        df.n_bits, df.sim_time_s,
+        label=label,
+        color=color,
+        marker=marker,
+        linestyle=linestyle
+    )
 
-def combined_l2_time(target: str, shots: List[int]) -> pd.DataFrame:
+
+def side_by_side(df: pd.DataFrame,
+                 targets: List[str],
+                 shot_list: List[int],
+                 multi_target: bool=False,
+                 fixed_shots: int=None):
     """
-    Plot combined L2‐error and sim_time vs. n_bits for a given target and shot list.
-    Returns a DataFrame summarizing mean L2‐error and mean sim_time per shot.
+    If multi_target=True, draws ALL targets on one figure at shot=fixed_shots.
+    Otherwise draws each target separately, all shots in shot_list.
     """
-    # load and filter data
-    df_all = pd.read_csv(DATA_CSV)
-    df = df_all[df_all["target"] == target]
+    if multi_target:
+        assert fixed_shots is not None
+        fig, (ax_l2, ax_time) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
+        fig.suptitle(f"ALL Targets @ {fixed_shots} shots", fontsize=16)
 
-    # prepare figure with two subplots
-    fig, (ax_l2, ax_time) = plt.subplots(1, 2, figsize=(14, 6), sharex=True)
-    fig.suptitle(f"{target}: L2 Error & Sim Time vs. Qubit Count", fontsize=16)
+        sub = df[df.shots == fixed_shots]
+        for tgt in targets:
+            d2 = sub[sub.target == tgt]
+            if d2.empty:
+                continue
+            m, ls = SHOT_STYLES[fixed_shots]
+            plot_pair(
+                ax_l2, ax_time, d2,
+                label=tgt,
+                color=COLORS[tgt],
+                marker=m,
+                linestyle=ls
+            )
 
-    summary: list[dict[str, float]] = []
+        ax_l2.set(title="L2 Error vs. Qubits", xlabel="Qubits", ylabel="L2 Error")
+        ax_time.set(title="Sim Time vs. Qubits", xlabel="Qubits", ylabel="Time (s)")
+        for ax in (ax_l2, ax_time):
+            ax.grid(True)
+            ax.legend(loc="best", title="Target")
 
-    for shot in shots:
-        sub = df[df["shots"] == shot]
+        plt.tight_layout(rect=[0, 0, 1, 0.92])
+        out = GRAPH_DIR / f"compare_all_{fixed_shots}_shots.png"
+        fig.savefig(out, dpi=300)
+        plt.close(fig)
+        print(f"✔ Saved compare-all: {out}")
+
+    else:
+        for tgt in targets:
+            sub = df[df.target == tgt]
+            fig, (ax_l2, ax_time) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
+            fig.suptitle(f"{tgt} — L2 & Time", fontsize=16)
+
+            for shot in shot_list:
+                d2 = sub[sub.shots == shot]
+                if d2.empty:
+                    continue
+                m, ls = SHOT_STYLES[shot]
+                plot_pair(
+                    ax_l2, ax_time, d2,
+                    label=f"{shot} shots",
+                    color=COLORS[tgt],
+                    marker=m,
+                    linestyle=ls
+                )
+
+            ax_l2.set(title="L2 Error vs. Qubits", xlabel="Qubits", ylabel="L2 Error")
+            ax_time.set(title="Sim Time vs. Qubits", xlabel="Qubits", ylabel="Time (s)")
+            for ax in (ax_l2, ax_time):
+                ax.grid(True)
+                ax.legend(loc="best", title="Shots")
+
+            plt.tight_layout(rect=[0, 0, 1, 0.92])
+            out = GRAPH_DIR / f"combined_{tgt}.png"
+            fig.savefig(out, dpi=300)
+            plt.close(fig)
+            print(f"✔ Saved per-target: {out}")
+
+
+def summarize(df: pd.DataFrame,
+              targets: List[str],
+              shot_list: List[int],
+              multi_target: bool=False,
+              fixed_shots: int=None) -> pd.DataFrame:
+    """
+    Returns a summary table:
+      • per-target & per-shot mean L2 & mean time
+      • or, for multi_target, each target @ fixed_shots
+    """
+    rows = []
+    if multi_target:
+        sub = df[df.shots == fixed_shots]
+        for tgt in targets:
+            d2 = sub[sub.target == tgt]
+            if d2.empty:
+                continue
+            rows.append({
+                "target": tgt,
+                "shots": fixed_shots,
+                "mean_l2": d2.l2_error.mean(),
+                "mean_time_s": d2.sim_time_s.mean()
+            })
+    else:
+        for tgt in targets:
+            for shot in shot_list:
+                d2 = df[(df.target == tgt) & (df.shots == shot)]
+                if d2.empty:
+                    continue
+                rows.append({
+                    "target": tgt,
+                    "shots": shot,
+                    "mean_l2": d2.l2_error.mean(),
+                    "mean_time_s": d2.sim_time_s.mean()
+                })
+
+    return pd.DataFrame(rows).set_index(["target", "shots"])
+
+
+def compare_targets_across_shots(df: pd.DataFrame,
+                                 targets: List[str],
+                                 shot_list: List[int]):
+    """
+    For each shot in shot_list, plot all targets together:
+      • L2 Error vs. Qubits
+      • Sim Time vs. Qubits
+    """
+    for shot in shot_list:
+        sub = df[df.shots == shot]
         if sub.empty:
+            print(f"⚠️ No data for {shot} shots, skipping.")
             continue
 
-        marker, ls = SHOT_STYLES.get(shot, ("o", "-"))
-        color = TARGET_COLORS.get(target, "black")
+        fig, (ax_l2, ax_time) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
+        fig.suptitle(f"ALL Targets @ {shot} shots", fontsize=16)
 
-        # plot L2 error
-        ax_l2.plot(
-            sub["n_bits"], sub["l2_error"],
-            label=f"{shot} shots", marker=marker, linestyle=ls, color=color
+        for tgt in targets:
+            d2 = sub[sub.target == tgt]
+            if d2.empty:
+                continue
+            m, ls = SHOT_STYLES.get(shot, ("o", "-"))
+            ax_l2.plot(
+                d2.n_bits, d2.l2_error,
+                label=tgt,
+                color=COLORS.get(tgt, "black"),
+                marker=m,
+                linestyle=ls
+            )
+            ax_time.plot(
+                d2.n_bits, d2.sim_time_s,
+                label=tgt,
+                color=COLORS.get(tgt, "black"),
+                marker=m,
+                linestyle=ls
+            )
+
+        ax_l2.set(title="L2 Error vs. Qubits", xlabel="Qubits", ylabel="L2 Error")
+        ax_time.set(title="Sim Time vs. Qubits", xlabel="Qubits", ylabel="Time (s)")
+        for ax in (ax_l2, ax_time):
+            ax.grid(True)
+            ax.legend(loc="best", title="Target")
+
+        plt.tight_layout(rect=[0, 0, 1, 0.92])
+        out = GRAPH_DIR / f"compare_targets_{shot}_shots.png"
+        fig.savefig(out, dpi=300)
+        plt.close(fig)
+        print(f"✔ Saved compare-targets @ {shot} shots: {out}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="QFT Benchmark Analysis (noiseless) — generate plots and summaries"
+    )
+    parser.add_argument(
+        "--multi", metavar="SHOT",
+        type=int,
+        help="draw ALL targets @ this shot count in one plot"
+    )
+    parser.add_argument(
+        "shots", metavar="SHOTS", type=int, nargs="*",
+        help="which shots to include (per-target mode); default is %s" %
+             ", ".join(map(str, DEFAULT_SHOTS))
+    )
+    args = parser.parse_args()
+
+    # load data
+    df_all = pd.read_csv(DATA_CSV)
+
+    if args.multi:
+        side_by_side(
+            df_all, TARGETS, [],
+            multi_target=True,
+            fixed_shots=args.multi
         )
-        # plot sim_time
-        ax_time.plot(
-            sub["n_bits"], sub["sim_time_s"],
-            label=f"{shot} shots", marker=marker, linestyle=ls, color=color
+        tbl = summarize(
+            df_all, TARGETS, [],
+            multi_target=True,
+            fixed_shots=args.multi
         )
+        print(f"\n=== Mean L2 & Time @ {args.multi} shots ===")
+        print(tbl)
+    else:
+        shots = args.shots if args.shots else DEFAULT_SHOTS
+        side_by_side(df_all, TARGETS, shots, multi_target=False)
+        tbl = summarize(df_all, TARGETS, shots, multi_target=False)
+        print("\n=== Per-target Mean L2 & Time Summary ===")
+        print(tbl)
 
-        # record summary stats
-        summary.append({
-            "shots":        shot,
-            "mean_l2_error": sub["l2_error"].mean(),
-            "mean_sim_time_s": sub["sim_time_s"].mean()
-        })
+        # compare across targets for each shot
+        compare_targets_across_shots(df_all, TARGETS, shots)
 
-    # finalize L2‐error plot
-    ax_l2.set_xlabel("Number of Qubits")
-    ax_l2.set_ylabel("L2 Error")
-    ax_l2.set_title("L2 Error vs. Qubits")
-    ax_l2.grid(True)
-    ax_l2.legend(title="Shots", loc="best", ncol=1)
+    print(f"\nAll plots → {GRAPH_DIR}")
 
-    # finalize sim‐time plot
-    ax_time.set_xlabel("Number of Qubits")
-    ax_time.set_ylabel("Simulation Time (s)")
-    ax_time.set_title("Simulation Time vs. Qubits")
-    ax_time.grid(True)
-    ax_time.legend(title="Shots", loc="best", ncol=1)
-
-    plt.tight_layout(rect=[0, 0, 1, 0.94])
-
-    # save figure
-    out_path = GRAPH_DIR / f"combined_l2_time_{target}.png"
-    fig.savefig(out_path, dpi=300)
-    plt.close(fig)
-    print(f"✔ Saved figure: {out_path}")
-
-    # return summary DataFrame
-    return pd.DataFrame(summary).set_index("shots")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # parse custom shot list or use default
-    shots = [int(s) for s in sys.argv[1:]] if len(sys.argv) > 1 else DEFAULT_SHOTS
-
-    for target in TARGET_COLORS:
-        print(f"\n=== Summary for {target} ===")
-        df_summary = combined_l2_time(target, shots)
-        print(df_summary)
-
-    print("\nAll plots saved successfully in:")
-    print(GRAPH_DIR)
+    main()
