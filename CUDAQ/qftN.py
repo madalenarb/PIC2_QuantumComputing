@@ -96,6 +96,9 @@ if __name__ == "__main__":
     # Simulation parameters
     SHOTS = 1024
 
+#    Warm-up run (32 shots) to trigger JIT compilation & context setup
+    _ = cudaq.sample(qft, shots_count=32)
+
     # Time the simulation
     t_start = time.perf_counter()
     counts = cudaq.sample(qft, shots_count=SHOTS)

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 CUDAQ QFT N-qubit benchmark
 This script benchmarks the QFT kernel on different targets (CPU and GPU).
@@ -61,19 +62,26 @@ def get_l2_norm(probs, n_bits):
 def run_benchmark(n_bits, target, shots=1024):
     """
     Run a single benchmark and L2 measurement for given N and target.
+    Includes a warm-up run to initialize JIT/GPU context.
     """
     cudaq.set_target(target)
     kernel = make_qft_kernel(n_bits)
+
+    # Warm-up run (32 shots) to trigger JIT compilation & context setup
+    _ = cudaq.sample(kernel, shots_count=32)
+
+    # Timed run
     t_start = time.perf_counter()
     counts = cudaq.sample(kernel, shots_count=shots)
     t_end = time.perf_counter()
+
     probs = get_probabilities(counts)
     l2_norm = get_l2_norm(probs, n_bits)
     return (t_end - t_start, l2_norm)
 
 if __name__ == "__main__":
     # Number of shots (default 1024)
-    shots = 16384 
+    shots = int(sys.argv[1]) if len(sys.argv) > 1 else 16384
 
     # Detect and report resources
     cpu_count = get_cpu_count()
@@ -84,7 +92,7 @@ if __name__ == "__main__":
     print(f"Detected NVIDIA GPUs   : {gpu_count}")
 
     records = []
-    # get target from command line argument or default to CPU
+    # get target from command line argument or default to GPU
     target = sys.argv[1] if len(sys.argv) > 1 else "nvidia"
     max_bits = 28 if target == "nvidia" else 23
     cudaq.set_target(target)
@@ -106,10 +114,11 @@ if __name__ == "__main__":
             "l2_norm": l2
         })
 
-    # Create 2 dataframes and export to CSV
-    df = pd.DataFrame([r for r in records if r["target"] == target])
-    # Export to results directory
+    # Create DataFrame and export to CSV
+    df = pd.DataFrame(records)
     results_dir = os.path.join(os.path.dirname(__file__), "results")
+    os.makedirs(results_dir, exist_ok=True)
     name_file = f"benchmark_qft_{target}_{shots}_shots.csv"
-    df.to_csv(os.path.join(results_dir, name_file), index=False)
-    print(f"Results exported to {os.path.join(results_dir, name_file)}")
+    output_path = os.path.join(results_dir, name_file)
+    df.to_csv(output_path, index=False)
+    print(f"Results exported to {output_path}")

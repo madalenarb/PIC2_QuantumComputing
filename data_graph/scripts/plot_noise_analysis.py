@@ -36,9 +36,10 @@ DATA_CSV    = BASE / "data_csv" / "treated_data" / "qft_merged_noise.csv"
 GRAPH_DIR   = BASE / "graphs" / "noise"
 GRAPH_DIR.mkdir(exist_ok=True, parents=True)
 
-df_noise    = pd.read_csv(DATA_CSV)
-# drop 'none' noise type entirely (only applies to p=0)
-df_noise    = df_noise[df_noise.noise != 'none']
+# Load data
+df_all = pd.read_csv(DATA_CSV)
+df_noise = df_all[df_all.noise != 'none']
+df_none  = df_all[df_all.noise == 'none']
 
 # derive lists from the data
 TARGETS     = sorted(df_noise["target"].unique())
@@ -67,6 +68,93 @@ NOISE_STYLES     = {
     n: (NOISE_MARKERS[i % len(NOISE_MARKERS)], NOISE_LINESTYLES[i % len(NOISE_LINESTYLES)])
     for i, n in enumerate(NOISE_TYPES)
 }
+SHAPES = ["o", "s", "^", "D", "*", "X", "P", "v"]
+# ──────────────────────────────────────────────────────────────────────────────
+# Plotting: None-noise, grouped by target
+# ──────────────────────────────────────────────────────────────────────────────
+def plot_none_noise_per_target():
+    for target in TARGETS:
+        df_target = df_none[df_none.target == target]
+        if df_target.empty:
+            continue
+
+        fig, axs = plt.subplots(2,2, figsize=(12, 8), sharex=True)
+        fig.suptitle(f"None-noise: {target} target (per shot)", fontsize=16)
+        axes = {
+            "time_sampling": axs[0,0],
+            "l2_error": axs[0,1],
+            "fidelity": axs[1,0],
+            "fro_norm": axs[1,1]
+        }
+        titles = {
+            "time_sampling": "Time Sampling vs Shots",
+            "l2_error": "L2 Error vs Shots",
+            "fidelity": "Fidelity vs Shots",
+            "fro_norm": "Fro Norm vs Shots"
+        }
+        for metric, ax in axes.items():
+            for shot in SHOT_LIST:
+                sub = df_target[df_target.shots == shot]
+                if sub.empty: continue
+                ax.plot(
+                    sub.n_bits, sub[metric],
+                    label=f"{shot} shots",
+                    color=COLORS[target],
+                    marker=SHAPES[TARGETS.index(target) % len(SHAPES)],
+                    linestyle="-"
+                )
+            ax.set(title=titles[metric], xlabel="Qubits", ylabel=metric.replace("_", " ").title())
+            ax.grid(True)
+            ax.legend(loc="best")
+        plt.tight_layout(rect=[0,0,1,0.93])
+        out = GRAPH_DIR / f"none_noise_per_target_{target.replace('/','_')}.png"
+        fig.savefig(out, dpi=300)
+        plt.close(fig)
+        print(f"✔ Saved: {out}")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Plotting: None-noise, grouped by shot
+# ──────────────────────────────────────────────────────────────────────────────
+def plot_none_noise_per_shot():
+    for shot in SHOT_LIST:
+        df_shot = df_none[df_none.shots == shot]
+        if df_shot.empty:
+            continue
+
+        fig, axs = plt.subplots(2,2, figsize=(12, 8), sharex=True)
+        fig.suptitle(f"None-noise: {shot} shots (per target)", fontsize=16)
+        axes = {
+            "time_sampling": axs[0,0],
+            "l2_error": axs[0,1],
+            "fidelity": axs[1,0],
+            "fro_norm": axs[1,1]
+        }
+        titles = {
+            "time_sampling": "Time Sampling vs Qubits",
+            "l2_error": "L2 Error vs Qubits",
+            "fidelity": "Fidelity vs Qubits",
+            "fro_norm": "Fro Norm vs Qubits"
+        }
+        for metric, ax in axes.items():
+            for target in TARGETS:
+                sub = df_shot[df_shot.target == target]
+                if sub.empty: continue
+                ax.plot(
+                    sub.n_bits, sub[metric],
+                    label=target,
+                    color=COLORS[target],
+                    marker=SHAPES[TARGETS.index(target) % len(SHAPES)],
+                    linestyle="-"
+                )
+            ax.set(title=titles[metric], xlabel="Qubits", ylabel=metric.replace("_", " ").title())
+            ax.grid(True)
+            ax.legend(loc="best")
+        plt.tight_layout(rect=[0,0,1,0.93])
+        out = GRAPH_DIR / f"none_noise_per_shot_{shot}_shots.png"
+        fig.savefig(out, dpi=300)
+        plt.close(fig)
+        print(f"✔ Saved: {out}")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Plot Function: All Noise Types for a Target & Probability
@@ -164,6 +252,7 @@ def main():
     parser.add_argument('-p','--probability', nargs='*', type=float, help='Probabilities; default=all')
     parser.add_argument('-t','--target', nargs='*', type=str, help='Targets; default=all')
     parser.add_argument('-b','--n_bits', type=int, default=12, help='Fixed qubit count for progression plots')
+    parser.add_argument('--none', action='store_true', help='Plot None-noise data (noiseless)')
     args = parser.parse_args()
 
     shots = args.shots or SHOT_LIST
@@ -171,17 +260,25 @@ def main():
     targets = args.target or TARGETS
     n_bits = args.n_bits
 
-    # Per-target per-prob plots
+    # If requested, plot noiseless ("none") data:
+    if args.none:
+        print("\nGenerating plots for noise='none' (noiseless)...")
+        plot_none_noise_per_target()
+        plot_none_noise_per_shot()
+
+    # Plots for noisy data
+    print("\nGenerating plots for noisy data...")
     for shot in shots:
-        df_shot = df_noise[df_noise.shots==shot]
+        df_shot = df_noise[df_noise.shots == shot]
         for prob in probs:
             for tgt in targets:
                 plot_all_noise_types(df_shot, tgt, prob)
 
-    # Metrics vs Probability progression per target & shot @ n_bits
     for shot in shots:
         for tgt in targets:
             plot_metrics_vs_probability(df_noise, tgt, shot, n_bits)
+
+    print("\n✅ All plots generated in:", GRAPH_DIR)
 
 if __name__ == "__main__":
     main()

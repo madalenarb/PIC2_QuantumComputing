@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 CUDAQ QFT N-qubit benchmark
 This script benchmarks the QFT kernel on different targets (CPU and GPU).
@@ -61,12 +62,19 @@ def get_l2_norm(probs, n_bits):
 def run_benchmark(n_bits, target, shots=1024):
     """
     Run a single benchmark and L2 measurement for given N and target.
+    Includes a warm-up run to initialize JIT/GPU context.
     """
     cudaq.set_target(target)
     kernel = make_qft_kernel(n_bits)
+
+    # Warm-up run (32 shots) to trigger JIT compilation & context
+    _ = cudaq.sample(kernel, shots_count=32)
+
+    # Timed run
     t_start = time.perf_counter()
     counts = cudaq.sample(kernel, shots_count=shots)
     t_end = time.perf_counter()
+
     probs = get_probabilities(counts)
     l2_norm = get_l2_norm(probs, n_bits)
     return (t_end - t_start, l2_norm)
@@ -89,7 +97,7 @@ if __name__ == "__main__":
         print(f"Using CPU cores: {cpu_count}")
     else:
         print(f"Using GPUs: {gpu_count}")
-    # shots list with from 2**12 which is 4096 to 2**30 which is 1073741824
+    # shots list with from 2**10 (1024) to 2**19 (524288)
     shots_list = [2**i for i in range(10, 20)]
     for shots in shots_list:
         print(f"\nRunning benchmark with {shots} shots")
@@ -97,18 +105,18 @@ if __name__ == "__main__":
             sim_time, l2 = run_benchmark(n_bits, target, shots)
             print(f"  {n_bits:2d} qubits -> time: {sim_time:.6f}s, L2 norm: {l2:.3e}")
             records.append({
-                "target": target,
-                "n_bits": n_bits,
-                "shots": shots,
+                "target":    target,
+                "n_bits":    n_bits,
+                "shots":     shots,
                 "sim_time_s": sim_time,
-                "l2_norm": l2
+                "l2_norm":   l2
             })
 
-    # Create 2 dataframes and export to CSV
-    df = pd.DataFrame([r for r in records if r["target"] == target])
-    name_file = f"qftN_{target}_multiple_shots.csv"
+    # Export results to CSV
     results_dir = os.path.join(os.path.dirname(__file__), "results")
     os.makedirs(results_dir, exist_ok=True)
-    df.to_csv(os.path.join(results_dir, name_file), index=False)
-    print(f"Results exported to {name_file}")
-    print(f"Results exported to {os.path.join(results_dir, name_file)}")
+    name_file = f"qftN_{target}_multiple_shots.csv"
+    output_path = os.path.join(results_dir, name_file)
+    df = pd.DataFrame(records)
+    df.to_csv(output_path, index=False)
+    print(f"Results exported to {output_path}")

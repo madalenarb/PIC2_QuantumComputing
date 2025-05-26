@@ -22,6 +22,7 @@ OUT_NOISE     = OUT_DIR / "qft_merged_noise.csv"
 # Source files
 # ──────────────────────────────────────────────────────────────────────────────
 no_noise_files = {
+    "qiskit-aer-gpu": DATA_DIR / "qiskit_gpu_no_noise.csv",
     "qiskit-aer":  DATA_DIR / "qiskit_no_noise.csv",
     "cudaq-gpu":   DATA_DIR / "cudaq_nvidia_no_noise.csv",
     "cudaq-cpu":   DATA_DIR / "cudaq_qpp-cpu_no_noise.csv",

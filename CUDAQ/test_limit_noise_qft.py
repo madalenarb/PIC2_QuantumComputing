@@ -59,7 +59,8 @@ for p in P_LIST:
 
     for n in range(args.start, args.stop + 1):
         kern = make_qft(n)
-        cudaq.sample(kern, shots_count=64)             # warm-up compile
+        # Warm-up run (32 shots) to trigger JIT compilation & context setup
+        _ = cudaq.sample(kern, shots_count=32)
 
         t0 = time.perf_counter()
         cudaq.sample(kern, shots_count=args.shots)

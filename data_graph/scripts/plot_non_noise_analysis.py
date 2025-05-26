@@ -2,56 +2,59 @@
 """
 plot_qft_no_noise.py — QFT Benchmark Analysis (noiseless)
 =========================================================
-Generates:
+Adds support for multiple raw CSV inputs. By default it now reads:
+  • merged CSV (treated_data/qft_merged_no_noise.csv)
+  • qiskit GPU raw CSV at the user‑specified absolute path
 
-  • Per‐target side‐by‐side L2 error & sim‐time vs. qubit count
-  • A multi‐target L2‐error & sim‐time comparison at a fixed shot count
+Generates:
+  • Per‑target side‑by‑side L2 error & sim‑time vs. qubit count
+  • A multi‑target L2‑error & sim‑time comparison at a fixed shot count
   • A comparison of all targets across each shot count
-  • Prints out per‐target and per-shot summary tables
+  • Prints out per‑target and per‑shot summary tables
   • All plots go into ./graphs/
 
-Usage:
-
-  # default: per‐target, using DEFAULT_SHOTS
-  python3 plot_non_noise_analysis.py
-
-  # compare ALL targets at SHOT=131072
-  python3 plot_non_noise_analysis.py --multi 131072
-
-  # per‐target across default shots + compare all targets per shot
-  python3 plot_non_noise_analysis.py
-
-  # per‐target across custom shots + compare all targets per shot
-  python3 plot_non_noise_analysis.py 2048 8192 65536
-
+Usage examples:
+  python3 plot_qft_no_noise.py                  # default per‑target
+  python3 plot_qft_no_noise.py --multi 131072   # all targets @ 131072 shots
+  python3 plot_qft_no_noise.py 2048 8192        # custom shots per target
 """
 import argparse
 from pathlib import Path
 from typing import List
-
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 # Configuration
-# ──────────────────────────────────────────────────────────────────────────────
-BASE = Path(__file__).parent
-DATA_CSV = BASE / "data_csv" / "treated_data" / "qft_merged_no_noise.csv"
+# ────────────────────────────────────────────────────────────
+BASE = Path(__file__).resolve().parent
 GRAPH_DIR = BASE / "graphs/no_noise"
-GRAPH_DIR.mkdir(exist_ok=True)
+GRAPH_DIR.mkdir(parents=True, exist_ok=True)
 
-TARGETS = ["cudaq-cpu", "cudaq-gpu", "qiskit-aer"]
+# Primary merged dataset
+DATA_FILES = [
+    BASE / "data_csv/treated_data/qft_merged_no_noise.csv",
+    Path("/home/madalenarb/Documents/PIC/PIC2_QuantumComputing/data_graph/scripts/data_csv/qiskit_gpu_no_noise.csv"),
+]
+
+TARGETS = [
+    "cudaq-cpu",
+    "cudaq-gpu",
+    "qiskit-aer",
+    "qiskit-aer-gpu",
+]
 
 COLORS = {
     "cudaq-cpu":  "tab:blue",
     "cudaq-gpu":  "tab:orange",
     "qiskit-aer": "tab:green",
+    "qiskit-aer-gpu": "tab:red",
 }
 
 SHOT_STYLES = {
     1024:    ("o", "-"),
     2048:    ("s", "--"),
-    4096:    ("^", "-."),
+    4096:    ("^", "-.") ,
     8192:    ("D", ":"),
     16384:   ("*", "-"),
     32768:   ("P", "--"),
@@ -63,6 +66,25 @@ SHOT_STYLES = {
 }
 
 DEFAULT_SHOTS: List[int] = [4096, 16384, 65536, 131072, 262144, 524288]
+
+# ────────────────────────────────────────────────────────────
+# Helper: load & concat datasets
+# ────────────────────────────────────────────────────────────
+
+def load_data(files: List[Path]) -> pd.DataFrame:
+    frames = []
+    for fp in files:
+        if not fp.exists():
+            print(f"⚠️  Data file not found: {fp}")
+            continue
+        try:
+            frames.append(pd.read_csv(fp))
+            print(f"✔ Loaded {fp} ({len(frames[-1])} rows)")
+        except Exception as exc:
+            print(f"‼️  Failed to load {fp}: {exc}")
+    if not frames:
+        raise FileNotFoundError("No valid data CSVs were loaded.")
+    return pd.concat(frames, ignore_index=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Plotting Helpers
@@ -248,49 +270,30 @@ def compare_targets_across_shots(df: pd.DataFrame,
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="QFT Benchmark Analysis (noiseless) — generate plots and summaries"
-    )
-    parser.add_argument(
-        "--multi", metavar="SHOT",
-        type=int,
-        help="draw ALL targets @ this shot count in one plot"
-    )
-    parser.add_argument(
-        "shots", metavar="SHOTS", type=int, nargs="*",
-        help="which shots to include (per-target mode); default is %s" %
-             ", ".join(map(str, DEFAULT_SHOTS))
-    )
+    parser = argparse.ArgumentParser(description="QFT Benchmark Analysis (noiseless)")
+    parser.add_argument("shots", nargs="*", type=int, metavar="SHOTS",
+                        help="Custom shot counts (per‑target mode)")
+    parser.add_argument("--multi", type=int, metavar="SHOT",
+                        help="Draw ALL targets @ this shot count")
     args = parser.parse_args()
 
-    # load data
-    df_all = pd.read_csv(DATA_CSV)
+    df_all = load_data(DATA_FILES)
 
+    # Existing analysis/plotting functions are assumed to be defined above.
     if args.multi:
-        side_by_side(
-            df_all, TARGETS, [],
-            multi_target=True,
-            fixed_shots=args.multi
-        )
-        tbl = summarize(
-            df_all, TARGETS, [],
-            multi_target=True,
-            fixed_shots=args.multi
-        )
+        side_by_side(df_all, TARGETS, [], multi_target=True, fixed_shots=args.multi)
+        tbl = summarize(df_all, TARGETS, [], multi_target=True, fixed_shots=args.multi)
         print(f"\n=== Mean L2 & Time @ {args.multi} shots ===")
         print(tbl)
     else:
-        shots = args.shots if args.shots else DEFAULT_SHOTS
-        side_by_side(df_all, TARGETS, shots, multi_target=False)
-        tbl = summarize(df_all, TARGETS, shots, multi_target=False)
-        print("\n=== Per-target Mean L2 & Time Summary ===")
+        shots = args.shots or DEFAULT_SHOTS
+        side_by_side(df_all, TARGETS, shots)
+        tbl = summarize(df_all, TARGETS, shots)
+        print("\n=== Per‑target Mean L2 & Time Summary ===")
         print(tbl)
-
-        # compare across targets for each shot
         compare_targets_across_shots(df_all, TARGETS, shots)
 
-    print(f"\nAll plots → {GRAPH_DIR}")
-
+    print(f"\nAll plots saved to → {GRAPH_DIR}")
 
 if __name__ == "__main__":
     main()

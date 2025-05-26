@@ -7,8 +7,7 @@ probe = AerSimulator()
 print("Supported devices:", probe.available_devices())
 
 # 2) Build GPU-backed sim (this will fallback to CPU if unsupported)
-sim = AerSimulator(method='statevector')
-
+sim = AerSimulator(method='statevector', device='GPU')
 # 3) Prepare a small circuit
 qc  = QuantumCircuit(5)
 qc.h(range(5))
