@@ -1,49 +1,27 @@
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
-from time import time
-from math import pi
-import importlib.util
+from time import perf_counter
 
-def qft_circuit(n_qubits: int) -> QuantumCircuit:
-    qc = QuantumCircuit(n_qubits)
-    for j in range(n_qubits):
-        qc.h(j)
-        for k in range(j+1, n_qubits):
-            qc.cp(pi / (2 ** (k - j)), k, j)
-    qc.reverse_bits()
-    return qc
+# 1) Probe device support
+probe = AerSimulator()
+print("Supported devices:", probe.available_devices())
 
-def is_aer_gpu_installed() -> bool:
-    spec = importlib.util.find_spec("qiskit_aer")
-    if spec and spec.submodule_search_locations:
-        return any("gpu" in loc.lower() for loc in spec.submodule_search_locations)
-    return False
+# 2) Build GPU-backed sim (this will fallback to CPU if unsupported)
+sim = AerSimulator(method='statevector')
 
-def detect_gpu_backend(backend) -> str:
-    config = backend.configuration()
-    if hasattr(config, "device") and getattr(config, "device", "").upper() == "GPU":
-        return "GPU"
-    return "CPU"
+# 3) Prepare a small circuit
+qc  = QuantumCircuit(5)
+qc.h(range(5))
+qc.measure_all()
+tqc = transpile(qc, sim)
 
-if __name__ == "__main__":
-    SHOTS = 2**18
-    print(f"{'  q':>3} | {'shots':>5} | {'sec':>6} | {'shots/s':>10} | backend")
-    print("-" * 50)
+# 4) Run  
+t0     = perf_counter()
+result = sim.run(tqc, shots=1024).result()
+elapsed = perf_counter() - t0
 
-    for n in range(3, 29):
-        qc = qft_circuit(n)
-        backend = AerSimulator(method='statevector')
-        backend_type = detect_gpu_backend(backend)
-        if is_aer_gpu_installed():
-            backend_type = "GPU"
-
-        transpiled_qc = transpile(qc, backend)
-
-        start = time()
-        result = backend.run(transpiled_qc, shots=SHOTS).result()
-        end = time()
-
-        elapsed = end - start
-        throughput = SHOTS / elapsed if elapsed > 0 else 0
-
-        print(f"{n:>3} | {SHOTS:>5} | {elapsed:6.3f} | {throughput:10.1f} | backend={backend_type}")
+# 5) Inspect metadata
+meta = result.results[0].metadata
+print("Elapsed:", elapsed)
+print("Metadata:", meta)
+print("GPU shots parallelized:", meta.get("gpu_parallel_shots"))
