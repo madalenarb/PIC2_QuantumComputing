@@ -1,72 +1,77 @@
 #!/usr/bin/env python3
-# qft3_cudaq.py – 3-qubit QFT on CPU or NVIDIA GPU backend using CUDA-Q
-
 import math
 import numpy as np
 import cudaq
+from typing import List
 
-# --------------------------------------------------------------------
-# Define the 3-qubit QFT kernel
-# --------------------------------------------------------------------
+
+# ──────────────────────────────────────────────────
+# 1) Kernel: GHZ preparation → QFT (no swaps)
+# ──────────────────────────────────────────────────
 @cudaq.kernel
-def qft3():
-    q = cudaq.qvector(3)
+def quantum_fourier_transform_ghz(n_bits: int):  # Add type annotation
+    q = cudaq.qvector(n_bits)
+    # 1) GHZ prep: (|0...0⟩ + |1...1⟩)/√2
     h(q[0])
-    r1.ctrl(math.pi / 2, q[1], q[0])
-    r1.ctrl(math.pi / 4, q[2], q[0])
-    h(q[1])
-    r1.ctrl(math.pi / 2, q[2], q[1])
-    h(q[2])
-    swap(q[0], q[2])
+    for i in range(1, n_bits):
+        x.ctrl(q[0], q[i])
+    # 2) QFT proper
+    for i in range(n_bits):
+        h(q[i])
+        for j in range(i + 1, n_bits):
+            angle = (2 * math.pi) / (2 ** (j - i + 1))
+            cr1(angle, [q[j]], q[i])
+    # (no final swap – this matches CUDA-Q’s little-endian indexing)
 
-def run_sampling(kernel, shots: int):
-    """Run the quantum kernel and return result counts."""
-    return cudaq.sample(kernel, shots_count=shots)
 
-def get_probabilities(counts: dict) -> dict:
-    """Convert raw counts into probability distribution."""
-    total = sum(counts.values())
-    return {state: count / total for state, count in counts.items()}
+# ──────────────────────────────────────────────────
+# 2) Build the ideal GHZ→QFT statevector
+# ──────────────────────────────────────────────────
+def ideal_qft_ghz_state(n_bits: int) -> np.ndarray:
+    N = 1 << n_bits
+    psi_in = np.zeros(N, complex)
+    psi_in[0] = psi_in[-1] = 1 / np.sqrt(2)
+    ω = np.exp(2j * np.pi / N)
+    F = np.array([[ω ** (j * k) for k in range(N)] for j in range(N)], dtype=complex) / np.sqrt(N)
+    return F @ psi_in
 
-def print_distribution(probs: dict, ideal: float):
-    """Print comparison with ideal distribution."""
-    diffs = []
-    print("\nMeasured vs Ideal Probabilities:")
-    for i in range(8):
-        state = f"{i:03b}"
-        p = probs.get(state, 0.0)
-        diff = abs(p - ideal)
-        diffs.append(diff)
-        print(f"  |{state}⟩: {p:.4f} (ideal: {ideal:.4f}, diff: {diff:.4f})")
-    return np.linalg.norm(np.array(diffs))
 
-# --------------------------------------------------------------------
-# Main execution
-# --------------------------------------------------------------------
+# ──────────────────────────────────────────────────
+# 3) Main: run, print, diagnose
+# ──────────────────────────────────────────────────
+def main():
+
+    # 1) choose statevector simulator
+    cudaq.set_target("qpp-cpu")
+
+    for n_bits in [3,4,5]:
+        # 2) draw the circuit
+        
+
+        # 3) run and grab the statevector
+        psi_sim = np.array(cudaq.get_state(quantum_fourier_transform_ghz, n_bits), dtype=complex)
+
+        # 4) compute ideal
+        psi_id = ideal_qft_ghz_state(n_bits)
+
+        # 5) show amplitudes
+        print("\nSimulated amplitudes:")
+        for i, amp in enumerate(psi_sim):
+            print(f"  |{i:03b}⟩ {amp.real:+.3f}{amp.imag:+.3f}j")
+
+        print("\nIdeal amplitudes:")
+        for i, amp in enumerate(psi_id):
+            print(f"  |{i:03b}⟩ {amp.real:+.3f}{amp.imag:+.3f}j")
+
+        # 6) fidelity and Frobenius norm
+        F = abs(np.vdot(psi_id, psi_sim))**2
+        rho_sim = np.outer(psi_sim, psi_sim.conj())
+        rho_id = np.outer(psi_id, psi_id.conj())
+        frob = np.linalg.norm(rho_sim - rho_id)
+
+        print(f"\nFidelity       = {F:.6f}")
+        print(f"Frobenius norm = {frob:.6e}")
+
+
 if __name__ == "__main__":
-    TARGET = "qpp-cpu"  # or "nvidia" for GPU
-    SHOTS = 4096
-
-    cudaq.set_target(TARGET)  
-    print("Backend target:", cudaq.get_target().name)
-    print("Available GPUs:", cudaq.num_available_gpus() if TARGET == "nvidia" else "N/A")
-
-    print("\nQuantum Circuit for 3-Qubit QFT:")
-    print(cudaq.draw(qft3))
-
-    # ── Warm-up ──
-    # Trigger JIT compilation and backend initialization (32 small shots)
-    _ = run_sampling(qft3, 32)
-
-    # ── Main sampling run ──
-    counts = run_sampling(qft3, SHOTS)
-    probs = get_probabilities(counts)
-
-    # Print measured probabilities
-    print("\nMeasured Probabilities:")
-    for state in sorted(probs):
-        print(f"  |{state}⟩: {probs[state]:.4f}")
-
-    # Compare to ideal uniform distribution
-    L2_error = print_distribution(probs, ideal=1/8)
-    print(f"\nL2 Error from ideal distribution: {L2_error:.4e}")
+    main()

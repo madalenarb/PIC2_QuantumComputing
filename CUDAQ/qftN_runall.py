@@ -1,76 +1,89 @@
 #!/usr/bin/env python3
 """
 CUDAQ QFT N-qubit benchmark
-This script benchmarks the QFT kernel on different targets (CPU and GPU).
+===========================
+
+This script benchmarks the QFT kernel on different targets (CPU or GPU).
 It generates a QFT kernel for N qubits, runs it on the specified target,
-and measures the time taken and the L2 norm of the resulting state vector
-against the ideal uniform distribution.
-The script also detects the number of logical CPU cores and available GPUs,
-and reports this information.
-The results are saved to a CSV file for further analysis.
+and measures:
+
+  • Simulation time (in seconds)
+  • L2 norm of the resulting sampled distribution vs. ideal
+
+It automatically detects the number of logical CPU cores and available NVIDIA GPUs,
+and saves all results to a CSV file for further analysis.
+
+───────────────────────────────────────────────────────
 Usage:
-    python qftN_runall.py [number of shots]
-    where [shots] is the number of shots to run (default: 1024).
+
+  python3 qftN_runall.py --target [TARGET] --init [zero | ghz]
+
+Options:
+  --target [qpp-cpu | nvidia]   Backend target to run on (default: nvidia)
+  --init   [zero | ghz]         Initial state of qubits (default: zero)
+
+Examples:
+  python3 qftN_runall.py
+  python3 qftN_runall.py --target qpp-cpu --init ghz
 """
+
 import math
 import time
 import os
-import sys
+import argparse
 import cudaq
 import pandas as pd
 
 def get_cpu_count():
-    """
-    Return the number of logical CPU cores available to this process.
-    """
     return os.cpu_count()
 
-def make_qft_kernel(n_bits):
-    """
-    Factory to generate an N-qubit QFT kernel.
-    """
-    @cudaq.kernel
-    def qft():
-        q = cudaq.qvector(n_bits)
-        # Hadamard + controlled-phase ladder
-        for k in range(n_bits):
-            h(q[k])
-            for j in range(k + 1, n_bits):
-                angle = math.pi / (2 ** (j - k))
-                r1.ctrl(angle, q[j], q[k])
-        # Bit-reversal swap network
-        for i in range(n_bits // 2):
-            swap(q[i], q[n_bits - i - 1])
-    return qft
+def make_qft_kernel(n_bits, init_state="zero"):
+    if init_state == "ghz":
+        @cudaq.kernel
+        def qft():
+            q = cudaq.qvector(n_bits)
+            h(q[0])
+            for i in range(1, n_bits):
+                x.ctrl(q[0], q[i])
+            # Apply QFT
+            for k in range(n_bits):
+                h(q[k])
+                for j in range(k + 1, n_bits):
+                    angle = math.pi / (2 ** (j - k))
+                    r1.ctrl(angle, q[j], q[k])
+            for i in range(n_bits // 2):
+                swap(q[i], q[n_bits - i - 1])
+        return qft
+
+    else:
+        @cudaq.kernel
+        def qft():
+            q = cudaq.qvector(n_bits)
+            # Apply QFT directly
+            for k in range(n_bits):
+                h(q[k])
+                for j in range(k + 1, n_bits):
+                    angle = math.pi / (2 ** (j - k))
+                    r1.ctrl(angle, q[j], q[k])
+            for i in range(n_bits // 2):
+                swap(q[i], q[n_bits - i - 1])
+        return qft
+
 
 def get_probabilities(counts):
-    """
-    Convert raw counts to probabilities.
-    """
     total = sum(counts.values())
     return {state: freq / total for state, freq in counts.items()}
 
 def get_l2_norm(probs, n_bits):
-    """
-    Compute L2 norm vs ideal uniform:
-    L2 = sqrt(sum((p - 1/N)^2)) = sqrt(sum(p^2) - 1/N).
-    """
     N = 2 ** n_bits
     sum_p2 = sum(p * p for p in probs.values())
     return math.sqrt(max(sum_p2 - 1.0 / N, 0.0))
 
-def run_benchmark(n_bits, target, shots=1024):
-    """
-    Run a single benchmark and L2 measurement for given N and target.
-    Includes a warm-up run to initialize JIT/GPU context.
-    """
+def run_benchmark(n_bits, target, shots=1024, init='zero'):
     cudaq.set_target(target)
-    kernel = make_qft_kernel(n_bits)
+    kernel = make_qft_kernel(n_bits, init)
+    _ = cudaq.sample(kernel, shots_count=32)  # Warm-up
 
-    # Warm-up run (32 shots) to trigger JIT compilation & context setup
-    _ = cudaq.sample(kernel, shots_count=32)
-
-    # Timed run
     t_start = time.perf_counter()
     counts = cudaq.sample(kernel, shots_count=shots)
     t_end = time.perf_counter()
@@ -79,46 +92,78 @@ def run_benchmark(n_bits, target, shots=1024):
     l2_norm = get_l2_norm(probs, n_bits)
     return (t_end - t_start, l2_norm)
 
-if __name__ == "__main__":
-    # Number of shots (default 1024)
-    shots = int(sys.argv[1]) if len(sys.argv) > 1 else 16384
+def main():
+    parser = argparse.ArgumentParser(description="Run QFT benchmark with CUDA-Q.")
+    parser.add_argument('--target', type=str, choices=['qpp-cpu', 'nvidia'], default='nvidia',
+                        help='Backend target (default: nvidia)')
+    parser.add_argument('--init', type=str, choices=['zero', 'ghz'], default='zero',
+                        help='Qubit initialization (default: zero)')
+    parser.add_argument('--max_bits', type=int, default=28,
+                        help='Maximum number of qubits to benchmark (default: 28 for nvidia, 21 for qpp-cpu)')
+    args = parser.parse_args()
 
-    # Detect and report resources
-    cpu_count = get_cpu_count()
-    print(f"Detected logical CPU cores: {cpu_count}")
-    # For CUDA-Q target, query available GPUs
-    cudaq.set_target("nvidia")
-    gpu_count = cudaq.num_available_gpus()
-    print(f"Detected NVIDIA GPUs   : {gpu_count}")
+    target = args.target
+    init_state = args.init
+    requested_max_bits = args.max_bits
+    target = args.target
 
-    records = []
-    # get target from command line argument or default to GPU
-    target = sys.argv[1] if len(sys.argv) > 1 else "nvidia"
-    max_bits = 28 if target == "nvidia" else 23
-    cudaq.set_target(target)
-    print(f"\nBackend target: {target}")
-    # Report per-target resource usage
-    if target == "qpp-cpu":
-        print(f"Using CPU cores: {cpu_count}")
+    # Define safe limits
+    MAX_BITS_LIMIT = {
+        "nvidia": 28,
+        "qpp-cpu": 21
+    }
+    GHZ_LIMIT_ON_NVIDIA = 27  # Safety bound due to GHZ entanglement overhead
+    MIN_BITS = 3
+
+    # Determine default max_bits based on target and init
+    default_max = GHZ_LIMIT_ON_NVIDIA if (init_state == "ghz" and target == "nvidia") else MAX_BITS_LIMIT.get(target, 21)
+
+    # Clamp and warn if necessary
+    if requested_max_bits < MIN_BITS or requested_max_bits > default_max:
+        print(f"⚠️  Requested --max_bits={requested_max_bits} is out of bounds for target='{target}' and init='{init_state}'.")
+        print(f"   Using max_bits={default_max} instead.")
+        max_bits = default_max
     else:
-        print(f"Using GPUs: {gpu_count}")
+        max_bits = requested_max_bits
 
-    for n_bits in range(3, max_bits + 1):
-        sim_time, l2 = run_benchmark(n_bits, target, shots)
-        print(f"  {n_bits:2d} qubits -> time: {sim_time:.6f}s, L2 norm: {l2:.3e}")
-        records.append({
-            "target": target,
-            "n_bits": n_bits,
-            "shots": shots,
-            "sim_time_s": sim_time,
-            "l2_norm": l2
-        })
 
-    # Create DataFrame and export to CSV
-    df = pd.DataFrame(records)
+
+
+    print(f"Detected logical CPU cores: {get_cpu_count()}")
+    print(f"Detected NVIDIA GPUs      : {cudaq.num_available_gpus()}")
+
+    cudaq.set_target(target)
+    print(f"\n🎯 Running on target: {target} with init: {init_state}")
+
+    if target == "qpp-cpu":
+        print(f"🧠 Using CPU cores: {get_cpu_count()}")
+    else:
+        print(f"🖥️  Using GPUs: {cudaq.num_available_gpus()}")
+
+    shots_list = [2 ** i for i in range(12, 20)]
+    records = []
+
+    for shots in shots_list:
+        print(f"\n🔁 Benchmarking {shots} shots:")
+        for n_bits in range(3, max_bits + 1):
+            sim_time, l2 = run_benchmark(n_bits, target, shots, init=init_state)
+            print(f"  {n_bits:2d} qubits → time: {sim_time:.4f}s | L2: {l2:.3e}")
+            records.append({
+                "target":     target,
+                "init":       init_state,
+                "n_bits":     n_bits,
+                "shots":      shots,
+                "sim_time_s": sim_time,
+                "l2_norm":    l2
+            })
+
     results_dir = os.path.join(os.path.dirname(__file__), "results")
     os.makedirs(results_dir, exist_ok=True)
-    name_file = f"benchmark_qft_{target}_{shots}_shots.csv"
-    output_path = os.path.join(results_dir, name_file)
+    output_path = os.path.join(results_dir, f"qftN_{target}_{init_state}_multiple_shots.csv")
+
+    df = pd.DataFrame(records)
     df.to_csv(output_path, index=False)
-    print(f"Results exported to {output_path}")
+    print(f"\n✅ Results saved to → {output_path}")
+
+if __name__ == "__main__":
+    main()

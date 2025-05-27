@@ -1,142 +1,133 @@
 #!/usr/bin/env python3
-import math, time, os
-import numpy as np
-import pandas as pd
-import cudaq
+"""
+QFT N-qubit benchmark (CUDA-Q, noise optional)
 
-# ───────────────────────────────────────────────────────────────────────
-# Build an N-qubit QFT kernel
-# ───────────────────────────────────────────────────────────────────────
-def make_qft_kernel(n_bits):
+  • noiseless run: fidelity = 1.000 for every n ≥ 3
+  • optional sweep of Depol / AmpDamp / Phase / BitFlip channels
+  • saves results => results/qftN_<init>_<shots>.csv
+"""
+
+from __future__ import annotations
+import argparse, math, os, time
+from typing import Dict, Tuple, Type
+import numpy as np, pandas as pd, cudaq
+
+# ────────────────── build QFT kernel ──────────────────
+def build_qft_kernel(n_bits: int, init_state: str):
+    if init_state == "ghz":
+        @cudaq.kernel
+        def circ():
+            q = cudaq.qvector(n_bits)
+            h(q[0])
+            for i in range(1, n_bits):
+                x.ctrl(q[0], q[i])
+            for k in range(n_bits):
+                h(q[k])
+                for j in range(k + 1, n_bits):
+                    θ = 2*math.pi / (2 ** (j - k + 1))
+                    cr1(θ, [q[j]], q[k])
+        return circ
+
     @cudaq.kernel
-    def qft():
+    def circ():
         q = cudaq.qvector(n_bits)
         for k in range(n_bits):
             h(q[k])
-            for j in range(k+1, n_bits):
-                angle = math.pi / (2 ** (j - k))
-                r1.ctrl(angle, q[j], q[k])
-        for i in range(n_bits//2):
-            swap(q[i], q[n_bits - i - 1])
-    return qft
+            for j in range(k + 1, n_bits):
+                θ = 2*math.pi / (2 ** (j - k + 1))
+                cr1(θ, [q[j]], q[k])
+    return circ
 
-# ───────────────────────────────────────────────────────────────────────
-# Population-L2 error from sampling (with warm-up)
-# ───────────────────────────────────────────────────────────────────────
-def sample_l2_pop(kern, shots, noise_model, n_bits):
-    # ── Warm-up for JIT & GPU/CPU context (32 shots) ──
-    cudaq.sample(kern, shots_count=32, noise_model=noise_model)
+# ────────────────── ideal statevector ─────────────────
+def ideal_qft_state(n_bits: int, init_state: str) -> np.ndarray:
+    N, psi = 1 << n_bits, np.zeros(1 << n_bits, complex)
+    psi[0] = 1 / math.sqrt(2) if init_state == "ghz" else 1.0
+    if init_state == "ghz":
+        psi[-1] = psi[0]
+    ω = np.exp(2j * math.pi / N)
+    F = np.array([[ω**(j*k) for k in range(N)] for j in range(N)]) / math.sqrt(N)
+    return F @ psi
 
-    # ── Timed sampling ──
+# ───────────── helper: always return ρ matrix ─────────
+def get_rho(kern, n_bits: int) -> np.ndarray:
+    raw = np.array(cudaq.get_state(kern))
+    if raw.size == (1 << n_bits):                 # state-vector
+        return np.outer(raw, raw.conj())
+    return raw.reshape(1 << n_bits, 1 << n_bits)  # already density-matrix
+
+# ───────────── helper: L2(pop) from sampling ──────
+def sample_l2_pop(kern, shots: int, n_bits: int, noise=None) -> Tuple[float,float]:
+    cudaq.sample(kern, shots_count=32, noise_model=noise)
     t0 = time.perf_counter()
-    counts = cudaq.sample(kern, shots_count=shots, noise_model=noise_model)
-    t1 = time.perf_counter()
+    counts = cudaq.sample(kern, shots_count=shots, noise_model=noise)
+    dt = time.perf_counter() - t0
+    probs = np.fromiter(counts.values(), float, len(counts)) / shots
+    l2 = math.sqrt(max(np.sum(probs**2) - 1/(1<<n_bits), 0.0))
+    return dt, l2
 
-    probs = {s: c / sum(counts.values()) for s, c in counts.items()}
-    N = 2**n_bits
-    l2 = math.sqrt(max(sum(p*p for p in probs.values()) - 1/N, 0.0))
-    return (t1 - t0, l2)
+# ─────────────────────────── main ────────────────────────────
+def main():
+    pa = argparse.ArgumentParser()
+    pa.add_argument("--init",  choices=["zero","ghz"], default="ghz")
+    pa.add_argument("--shots", type=int, default=4096)
+    pa.add_argument("--max_bits", type=int, default=10)
+    pa.add_argument("--probs", nargs="*", type=float,
+                    default=[0.01,0.1,0.5,0.9,1.0])
+    args = pa.parse_args()
 
-# ───────────────────────────────────────────────────────────────────────
-# Ideal QFT state (uniform superposition)
-# ───────────────────────────────────────────────────────────────────────
-def ideal_qft_state(n_bits):
-    N = 2**n_bits
-    psi = np.full(N, 1/math.sqrt(N), dtype=complex)
-    rho = np.outer(psi, psi.conj())
-    return rho, psi
+    rows = []
+    print("probability\tnoise_model\tn_bits\tshots\ttime_s\tL2_pop\tFro_norm\tFidelity")
 
-# ───────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    shots         = 262144
-    target        = "density-matrix-cpu"
-    max_bits      = 12
-    probabilities = [0.01, 0.1, 0.5, 0.9, 1.0]
+    # —— noiseless baseline on state-vector back-end ——
+    cudaq.set_target("qpp-cpu")
+    for n in range(3, args.max_bits+1):
+        kern = build_qft_kernel(n, args.init)
+        rho_s = get_rho(kern, n)
+        psi_i = ideal_qft_state(n, args.init)
+        rho_i = np.outer(psi_i, psi_i.conj())
+        fid   = float(np.real(np.trace(rho_i @ rho_s)))
+        frob  = np.linalg.norm(rho_s - rho_i)
+        t,l2  = sample_l2_pop(kern, args.shots, n)
+        rows.append((0.0,"none",n,args.shots,t,l2,frob,fid))
+        print(f"0.0\tnone       \t{n}\t{args.shots}\t{t:.3f}\t{l2:.3e}\t{frob:.3e}\t{fid:.6f}")
 
-    # noise channels to test
-    channel_ctors = {
-        "Depolarizing":      cudaq.DepolarizationChannel,
-        "Amplitude Damping": cudaq.AmplitudeDampingChannel,
-        "Phase Damping":     cudaq.PhaseFlipChannel,
-        "Bit Flip":          cudaq.BitFlipChannel
+    # —— noisy sweep (optional) ————————————————
+    cudaq.set_target("density-matrix-cpu")
+    chans : Dict[str,Type] = {
+        "Depol": cudaq.DepolarizationChannel,
+        "AmpDamp": cudaq.AmplitudeDampingChannel,
+        "Phase": cudaq.PhaseFlipChannel,
+        "BitFlip": cudaq.BitFlipChannel,
     }
-
-    cudaq.set_target(target)
-
-    # precompute ideal density matrices & state-vectors
-    IDEAL_RHO = {}
-    IDEAL_PSI = {}
-    for n in range(3, max_bits+1):
-        rho, psi = ideal_qft_state(n)
-        IDEAL_RHO[n], IDEAL_PSI[n] = rho, psi
-
-    records = []
-
-    # ─── 1. Run 'none' case only once with p=0 ───────────────────────────
-    for n in range(3, max_bits+1):
-        kern = make_qft_kernel(n)
-        sim_time_s, l2_pop = sample_l2_pop(kern, shots, None, n)
-
-        rho_ideal = IDEAL_RHO[n]
-        psi_ideal = IDEAL_PSI[n]
-        rho_noisy = np.array(cudaq.get_state(kern))
-        fro_norm  = np.linalg.norm(rho_noisy - rho_ideal)
-        fidelity  = float((psi_ideal.conj() @ rho_noisy @ psi_ideal).real)
-
-        records.append({
-            "n_bits":      n,
-            "shots":       shots,
-            "noise":       "none",
-            "probability": 0.0,
-            "time_sampling": sim_time_s,
-            "l2_pop":      l2_pop,
-            "time_density": sim_time_s,
-            "fro_norm":    fro_norm,
-            "fidelity":    fidelity
-        })
-        print(f"p=0.0 none          n={n:2d} "
-              f"t={sim_time_s:.3f}s  L2_pop={l2_pop:.3e}  "
-              f"Fro={fro_norm:.3e}  F={fidelity:.4f}")
-
-    # ─── 2. Now run all other noise types across all p values ────────────
-    for p in probabilities:
-        for name, ctor in channel_ctors.items():
-            chan = ctor(p)
+    for p_err in args.probs:
+        for label, Chan in chans.items():
             nm = cudaq.NoiseModel()
-            for q in range(max_bits):
-                nm.add_channel('h', [q], chan)
-
-            for n in range(3, max_bits+1):
-                kern = make_qft_kernel(n)
-                sim_time_s, l2_pop = sample_l2_pop(kern, shots, nm, n)
-
-                rho_ideal = IDEAL_RHO[n]
-                psi_ideal = IDEAL_PSI[n]
+            chan = Chan(p_err)
+            for q in range(args.max_bits):
+                nm.add_channel("h",  [q], chan)
+                nm.add_channel("x",  [q], chan)
+                nm.add_channel("r1", [q], chan)
+            for n in range(3, args.max_bits+1):
+                kern = build_qft_kernel(n, args.init)
+                t,l2 = sample_l2_pop(kern, args.shots, n, noise=nm)
                 cudaq.set_noise(nm)
-                rho_noisy = np.array(cudaq.get_state(kern))
+                rho_s = get_rho(kern, n)
                 cudaq.unset_noise()
+                psi_i = ideal_qft_state(n, args.init)
+                rho_i = np.outer(psi_i, psi_i.conj())
+                fid   = float(np.real(np.trace(rho_i @ rho_s)))
+                frob  = np.linalg.norm(rho_s - rho_i)
+                rows.append((p_err,label,n,args.shots,t,l2,frob,fid))
+                print(f"{p_err}\t{label:<10}\t{n}\t{args.shots}\t{t:.3f}"
+                        f"\t{l2:.3e}\t{frob:.3e}\t{fid:.6f}")
 
-                fro_norm  = np.linalg.norm(rho_noisy - rho_ideal)
-                fidelity  = float((psi_ideal.conj() @ rho_noisy @ psi_ideal).real)
-
-                records.append({
-                    "n_bits":      n,
-                    "shots":       shots,
-                    "noise":       name,
-                    "probability": p,
-                    "time_sampling": sim_time_s,
-                    "l2_pop":      l2_pop,
-                    "time_density": sim_time_s,
-                    "fro_norm":    fro_norm,
-                    "fidelity":    fidelity
-                })
-                print(f"p={p:<4} {name:16s} n={n:2d} "
-                      f"t={sim_time_s:.3f}s  L2_pop={l2_pop:.3e}  "
-                      f"Fro={fro_norm:.3e}  F={fidelity:.4f}")
-
-    # save as long-format CSV
-    df = pd.DataFrame(records)
+    # —— save CSV ————————————————————————————————
     os.makedirs("results", exist_ok=True)
-    out_csv = f"results/qft_noise_all_probs_{shots}_shots_3.csv"
-    df.to_csv(out_csv, index=False)
-    print(f"\nSaved results to {out_csv}")
+    out = f"results/qftN_{args.init}_{args.shots}.csv"
+    pd.DataFrame(rows, columns=[
+        "probability","noise_model","n_bits","shots",
+        "time_s","L2_pop","Fro_norm","Fidelity"]).to_csv(out, index=False)
+    print(f"\n✅ results saved → {out}")
+
+if __name__ == "__main__":
+    main()
