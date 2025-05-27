@@ -1,147 +1,153 @@
 #!/usr/bin/env python3
 """
-qftN_benchmark_cpu_noise_model.py — QFT Noise Benchmark (CUDA‑Q)
-================================================================
-Benchmarks the Quantum Fourier Transform (QFT) under a variety of
-noise channels using CUDA‑Q’s **density‑matrix** simulator.
+QFT Benchmark Script (Qiskit + AerSimulator)
 
-Output columns (tab‑separated)
-------------------------------
-```
-probability   noise_model   n_bits   shots   time_s   L2_pop   Fro_norm   Fidelity
-```
- * **probability** – error probability *p* fed to the channel
- * **noise_model** – “none”, “Depol”, “AmpDamp”, “Phase”, or “BitFlip”
- * **n_bits** – number of qubits in the register
- * **shots** – sample shots used for the L2‑population metric
- * **time_s** – sampling wall‑time (seconds)
- * **L2_pop** – L2 distance between sampled and uniform distributions
- * **Fro_norm** – Frobenius norm ‖ρ_sim − ρ_ideal‖
- * **Fidelity** – ‖⟨ψ_id | ψ_sim⟩‖²  (or Tr(ρ_id ρ_sim) for noisy runs)
+This script benchmarks the Quantum Fourier Transform (QFT) circuit using
+Qiskit AerSimulator, supporting both GPU and CPU backends. The user can customize:
 
-A CSV file with the same columns is written to *results/*.
+- Number of qubits (range)
+- Initialization method: zero or GHZ
+- Backend simulation method (e.g., statevector, density_matrix)
+- Shot counts (list of powers of 2)
+- Output file name
+
+Usage:
+    python benchmark_qft.py --init ghz --min_qubits 4 --max_qubits 25 \
+        --method statevector --shots 1024 2048 4096 --output results/ghz_test.csv
+
+Author: Madalena Barros, PIC Quantum Simulation (2025)
 """
 
-from __future__ import annotations
+import os
+import math
+import time
+import numpy as np
+import pandas as pd
 
-import argparse, math, os, time
-from typing import Dict, Tuple
-import numpy as np, pandas as pd, cudaq
+from qiskit import QuantumCircuit, transpile
+from qiskit_aer import AerSimulator
 
-# ─────────────────────────── kernel builders ────────────────────────────
+from qiskit.circuit.library import QFT
 
-def qft_kernel(n_bits: int, init_state: str = "ghz"):
-    """Textbook / mathematical QFT without the final swap layer."""
+
+def build_qft(n: int, init_state: str = "zero"):
+    """Return an n-qubit QFT circuit using Qiskit's built-in QFT class."""
+    qc = QuantumCircuit(n,n)
+
+    # Initialization
     if init_state == "ghz":
-        @cudaq.kernel
-        def circ():
-            q = cudaq.qvector(n_bits)
-            h(q[0])
-            for k in range(1, n_bits):
-                x.ctrl(q[0], q[k])
-            for i in range(n_bits):
-                h(q[i])
-                for j in range(i + 1, n_bits):
-                    cr1(2 * math.pi / (2 ** (j - i + 1)), [q[j]], q[i])
-        return circ
+        qc.h(0)
+        for i in range(1, n):
+            qc.cx(0, i)
+    elif init_state != "zero":
+        raise ValueError(f"Unknown init_state '{init_state}' (choose 'zero' or 'ghz')")
 
-    @cudaq.kernel
-    def circ():
-        q = cudaq.qvector(n_bits)
-        for i in range(n_bits):
-            h(q[i])
-            for j in range(i + 1, n_bits):
-                cr1(2 * math.pi / (2 ** (j - i + 1)), [q[j]], q[i])
-    return circ
+    # Add QFT
+    qft = QFT(num_qubits=n, approximation_degree=0, do_swaps=True, inverse=False, insert_barriers=False)
+    qc.append(qft.to_instruction(), range(n))
 
-# ─────────────────────────── ideal state vector ─────────────────────────
+    qc.measure(range(n), range(n))
 
-def ideal_qft_state(n_bits: int, init_state: str) -> np.ndarray:
-    N = 1 << n_bits
-    psi = np.zeros(N, complex)
-    if init_state == "ghz":
-        psi[0] = psi[-1] = 1 / np.sqrt(2)
+
+    return qc
+
+
+
+def compute_l2_error(counts, n_qubits, shots):
+    """Compute the L2 norm between the observed and uniform distributions."""
+    N = 2 ** n_qubits
+    ideal = np.full(N, 1 / N)
+    sampled = np.zeros(N)
+    for bitstr, freq in counts.items():
+        idx = int(bitstr[::-1], 2)
+        sampled[idx] = freq / shots
+    return np.linalg.norm(sampled - ideal, ord=2)
+
+
+def make_backend(method: str = "statevector", device: str = "GPU"):
+    """Create and return the appropriate backend simulator."""
+    if method == "statevector":
+        if device == "GPU":
+            backend = AerSimulator(method='statevector', device='GPU')
+            backend_type = "GPU"
+        else:
+            backend = AerSimulator(method='statevector')
+            backend_type = "CPU"
+    elif method == "density_matrix":
+        if device == "GPU":
+            backend = AerSimulator(method='density_matrix', device='GPU')
+            backend_type = "GPU"
+        else:
+            backend = AerSimulator(method='density_matrix')
+            backend_type = "CPU"
     else:
-        psi[0] = 1.0
-    ω = np.exp(2j * np.pi / N)
-    F = np.array([[ω ** (j * k) for k in range(N)] for j in range(N)]) / np.sqrt(N)
-    return F @ psi
+        raise ValueError(f"Unknown method '{method}' (choose 'statevector' or 'density_matrix')")
 
-# ─────────────────────────── L2‑population helper ───────────────────────
-
-def sample_l2_pop(kern, shots: int, n_bits: int, noise=None) -> Tuple[float, float]:
-    cudaq.sample(kern, shots_count=32, noise_model=noise)  # warm‑up
-    t0 = time.perf_counter()
-    counts = cudaq.sample(kern, shots_count=shots, noise_model=noise)
-    t1 = time.perf_counter()
-    probs = np.fromiter(counts.values(), float, len(counts)) / shots
-    l2 = math.sqrt(max(np.sum(probs ** 2) - 1 / (1 << n_bits), 0.0))
-    return t1 - t0, l2
-
-# ─────────────────────────── main routine ───────────────────────────────
-
-def main():
-    pa = argparse.ArgumentParser()
-    pa.add_argument("--init",  choices=["zero", "ghz"], default="ghz")
-    pa.add_argument("--shots", type=int, default=4096)
-    pa.add_argument("--max_bits", type=int, default=12)
-    pa.add_argument("--noise", action="store_true",
-                    help="include noisy sweeps in addition to noiseless run")
-    pa.add_argument("--probs", nargs="*", type=float, default=[0.01, 0.1, 0.5, 0.9, 1.0])
-    args = pa.parse_args()
-
-    # print header
-    print("probability\tnoise_model\tn_bits\tshots\ttime_s\tL2_pop\tFro_norm\tFidelity")
-
-    rows = []
-
-    # ── noiseless pass on state‑vector backend ─────────────────────────
-    cudaq.set_target("qpp-cpu")
-    for n in range(3, args.max_bits + 1):
-        kern   = qft_kernel(n, args.init)
-        psi_s  = np.array(cudaq.get_state(kern))
-        psi_id = ideal_qft_state(n, args.init)
-        fid    = abs(np.vdot(psi_id, psi_s)) ** 2
-        frob   = np.linalg.norm(np.outer(psi_s, psi_s.conj()) - np.outer(psi_id, psi_id.conj()))
-        t_s, l2 = sample_l2_pop(kern, args.shots, n)
-        rows.append((0.0, "none", n, args.shots, t_s, l2, frob, fid))
-        print(f"0.0\tnone        \t{n}\t{args.shots}\t{t_s:.3f}\t{l2:.3e}\t{frob:.3e}\t{fid:.6f}")
-
-    # ── noisy sweeps (optional) ───────────────────────────────────────
-    if args.noise:
-        cudaq.set_target("density-matrix-cpu")
-        channels = {
-            "Depol"  : cudaq.DepolarizationChannel,
-            "AmpDamp": cudaq.AmplitudeDampingChannel,
-            "Phase"  : cudaq.PhaseFlipChannel,
-            "BitFlip": cudaq.BitFlipChannel,
-        }
-        for p in args.probs:
-            for label, Chan in channels.items():
-                nm = cudaq.NoiseModel()
-                chan = Chan(p)
-                for q in range(args.max_bits):
-                    nm.add_channel("h", [q], chan)
-                for n in range(3, args.max_bits + 1):
-                    kern   = qft_kernel(n, args.init)
-                    t_s, l2 = sample_l2_pop(kern, args.shots, n, noise=nm)
-                    cudaq.set_noise(nm)
-                    rho_sim = np.array(cudaq.get_state(kern))
-                    cudaq.unset_noise()
-                    psi_id = ideal_qft_state(n, args.init)
-                    rho_id = np.outer(psi_id, psi_id.conj())
-                    fid  = float(np.real(np.trace(rho_id @ rho_sim)))
-                    frob = np.linalg.norm(rho_sim - rho_id)
-                    rows.append((p, label, n, args.shots, t_s, l2, frob, fid))
-                    print(f"{p}\t{label:<10}\t{n}\t{args.shots}\t{t_s:.3f}\t{l2:.3e}\t{frob:.3e}\t{fid:.6f}")
-
-    # ── write CSV ─────────────────────────────────────────────────────
-    os.makedirs("results", exist_ok=True)
-    out = f"results/qftN_{args.init}.csv"
-    df = pd.DataFrame(rows, columns=["probability","noise_model","n_bits","shots",
-                                     "time_s","L2_pop","Fro_norm","Fidelity"])
-    df.to_csv(out, index=False)
-    print(f"\n✅ results saved → {out}")
+    return backend, backend_type
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--init", type=str, default="zero", choices=["zero", "ghz"],
+                        help="Initial state before QFT (zero or ghz)")
+    parser.add_argument("--method", type=str, default="statevector",
+                        help="Backend simulation method (e.g., statevector, density_matrix)")
+    parser.add_argument("--min_qubits", type=int, default=3, help="Minimum number of qubits")
+    parser.add_argument("--max_qubits", type=int, default=27, help="Maximum number of qubits")
+    parser.add_argument("--shots", type=int, nargs="+", default=[2**i for i in range(10, 20)],
+                        help="List of shot counts (e.g., --shots 1024 2048 4096)")
+    parser.add_argument("--output", type=str, default=None, help="Output CSV file path")
+    parser.add_argument("--device", type=str, default="GPU", choices=["GPU", "CPU"],
+                        help="Target device for simulation (default: GPU)")
+
+    args = parser.parse_args()
+    init_state = args.init
+    method = args.method
+    min_qubits = args.min_qubits
+    max_qubits = args.max_qubits
+    shot_counts = args.shots
+    device_choice = args.device.upper()
+    output_path = args.output
+
+    backend, backend_type = make_backend(method, device_choice)
+
+    records = []
+    for shots in shot_counts:
+        print(f"\n--- Benchmarking {shots} shots ---")
+        for n in range(min_qubits, max_qubits + 1):
+            qc = build_qft(n, init_state=init_state)
+            tqc = transpile(qc, backend)
+
+            _ = backend.run(tqc, shots=32).result()
+
+            t0 = time.perf_counter()
+            result = backend.run(tqc, shots=shots).result()
+            elapsed = time.perf_counter() - t0
+
+            counts = result.get_counts()
+            l2_err = compute_l2_error(counts, n, shots)
+            throughput = shots / elapsed
+
+            print(f"{n:2d} qubits | {shots:7d} shots | {elapsed:6.3f}s | {throughput:8.1f} shots/s | "
+                  f"L2 error={l2_err:.6f} | {backend_type} | init={init_state}")
+
+            records.append({
+                "n_bits":     n,
+                "shots":      shots,
+                "sim_time_s": elapsed,
+                "throughput": throughput,
+                "l2_error":   l2_err,
+                "backend":    backend_type,
+                "init":       init_state,
+                "method":     method
+            })
+
+    os.makedirs("Results", exist_ok=True)
+    if not output_path:
+        output_path = os.path.join(
+            "Results", f"multishot_qft_{backend_type.lower()}_{init_state}_{method}.csv"
+        )
+
+    pd.DataFrame(records).to_csv(output_path, index=False)
+    print(f"\n📁 Results saved to {output_path}")

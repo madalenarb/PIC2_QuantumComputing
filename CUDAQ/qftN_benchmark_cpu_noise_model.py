@@ -67,19 +67,53 @@ def sample_l2_pop(kern, shots: int, n_bits: int, noise=None) -> Tuple[float,floa
 
 # ─────────────────────────── main ────────────────────────────
 def main():
-    pa = argparse.ArgumentParser()
-    pa.add_argument("--init",  choices=["zero","ghz"], default="ghz")
-    pa.add_argument("--shots", type=int, default=4096)
-    pa.add_argument("--max_bits", type=int, default=10)
-    pa.add_argument("--probs", nargs="*", type=float,
-                    default=[0.01,0.1,0.5,0.9,1.0])
+    pa = argparse.ArgumentParser(description="Benchmark QFT circuits with configurable initial state, shots, noise, and target backend.")
+
+    pa.add_argument(
+        "--init", 
+        choices=["zero", "ghz"], 
+        default="ghz",
+        help="Initial state to prepare before running the QFT circuit. Choose 'zero' for |0...0⟩ or 'ghz' for GHZ state."
+    )
+
+    pa.add_argument(
+        "--shots", 
+        type=int, 
+        default=4096,
+        help="Number of measurement shots to perform per circuit run."
+    )
+
+    pa.add_argument(
+        "--max_bits", 
+        type=int, 
+        default=10,
+        help="Maximum number of qubits to simulate."
+    )
+
+    pa.add_argument(
+        "--probs", 
+        nargs="*", 
+        type=float,
+        default=[0.01, 0.1, 0.5, 0.9, 1.0],
+        help="List of depolarizing probabilities to apply as noise. Default: [0.01, 0.1, 0.5, 0.9, 1.0]."
+    )
+
+    pa.add_argument(
+        "--target", 
+        choices=["qpp-cpu", "nvidia"], 
+        default="qpp-cpu",
+        help="Target backend for simulation. Use 'qpp-cpu' for CPU simulation or 'nvidia' for GPU acceleration."
+    )
+    
     args = pa.parse_args()
+
+    target = args.target
 
     rows = []
     print("probability\tnoise_model\tn_bits\tshots\ttime_s\tL2_pop\tFro_norm\tFidelity")
 
     # —— noiseless baseline on state-vector back-end ——
-    cudaq.set_target("qpp-cpu")
+    cudaq.set_target(target)
     for n in range(3, args.max_bits+1):
         kern = build_qft_kernel(n, args.init)
         rho_s = get_rho(kern, n)
@@ -123,7 +157,7 @@ def main():
 
     # —— save CSV ————————————————————————————————
     os.makedirs("results", exist_ok=True)
-    out = f"results/qftN_{args.init}_{args.shots}.csv"
+    out = f"results/qftN_{args.init}_{args.shots}_{target}.csv"
     pd.DataFrame(rows, columns=[
         "probability","noise_model","n_bits","shots",
         "time_s","L2_pop","Fro_norm","Fidelity"]).to_csv(out, index=False)

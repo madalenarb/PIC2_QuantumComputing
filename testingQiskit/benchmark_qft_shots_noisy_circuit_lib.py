@@ -40,8 +40,10 @@ from qiskit_aer.noise import (
 )
 
 
+from qiskit.circuit.library import QFT
+
 def build_qft(n: int, measure: bool, init_state: str = "zero"):
-    """Return an n-qubit QFT circuit with optional GHZ initialization and optional measurement."""
+    """Return an n-qubit QFT circuit using Qiskit's built-in QFT class."""
     qc = QuantumCircuit(n, n if measure else 0)
 
     # Initialization
@@ -52,12 +54,9 @@ def build_qft(n: int, measure: bool, init_state: str = "zero"):
     elif init_state != "zero":
         raise ValueError(f"Unknown init_state '{init_state}' (choose 'zero' or 'ghz')")
 
-    # QFT
-    for k in range(n):
-        qc.h(k)
-        for j in range(1, n - k):
-            qc.cp(math.pi / 2**j, k, k + j)
-
+    # Add QFT
+    qft = QFT(num_qubits=n, approximation_degree=0, do_swaps=True, inverse=False, insert_barriers=False)
+    qc.append(qft.to_instruction(), range(n))
 
     if measure:
         qc.measure(range(n), range(n))
@@ -65,6 +64,7 @@ def build_qft(n: int, measure: bool, init_state: str = "zero"):
         qc.save_density_matrix(label='rho')
 
     return qc
+
 
 def compute_ideal_qft_state(n: int, init_state: str):
     N = 2 ** n
@@ -125,19 +125,15 @@ def make_backend(method: str, noise_model: NoiseModel, device_choice: str):
     """Return AerSimulator with the requested method and device (auto/GPU/CPU)."""
     if device_choice.upper() == 'CPU':
         sim = AerSimulator(method=method, noise_model=noise_model)
-        print(f"✅ Using CPU AerSimulator ({method})")
     elif device_choice.upper() == 'GPU':
         sim = AerSimulator(method=method, noise_model=noise_model, device='GPU')
-        print(f"✅ Using GPU AerSimulator ({method})")
     else:  # auto
         try:
             sim = AerSimulator(method=method, noise_model=noise_model)
             sim.available_devices()  # trigger check
-            print(f"✅ Using GPU AerSimulator ({method}) [auto]")
         except Exception:
             sim = AerSimulator(method=method, noise_model=noise_model)
             print(f"⚠️ GPU not available — falling back to CPU AerSimulator ({method}) [auto]")
-    print(f"   Available devices: {sim.available_devices()}")
     return sim
 
 
@@ -164,6 +160,7 @@ def main():
     noise_types = args.noise
     probs = args.probs
 
+    print(f"Running QFT noise benchmark with parameters:")
     print(f"\n▶ Starting QFT noise benchmark:")
     print(f"   → Initial state: {init_state}")
     print(f"   → Shots       : {shots}")
@@ -180,9 +177,17 @@ def main():
         IDEAL_RHO[n] = rho_out
 
     records = []
+    noiseless_flag =1
+    p = 0
     for prob in probs:
         for noise in noise_types:
-            p = 0.0 if noise == 'none' else prob
+            if noise == 'none' and noiseless_flag:
+                # Special case for noiseless simulation
+                noiseless_flag = 0
+            elif noise == 'none' and not noiseless_flag:
+                continue
+            else:
+                p = prob
             nm = make_noise(noise, p)
             sampler = make_backend('automatic', noise_model=nm, device_choice=device)
             densim  = make_backend('density_matrix', noise_model=nm, device_choice=device)
