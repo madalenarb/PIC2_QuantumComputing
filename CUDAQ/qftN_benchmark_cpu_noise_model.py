@@ -98,19 +98,14 @@ def main():
         help="List of depolarizing probabilities to apply as noise. Default: [0.01, 0.1, 0.5, 0.9, 1.0]."
     )
 
-    pa.add_argument(
-        "--target", 
-        choices=["qpp-cpu", "nvidia"], 
-        default="qpp-cpu",
-        help="Target backend for simulation. Use 'qpp-cpu' for CPU simulation or 'nvidia' for GPU acceleration."
-    )
     
     args = pa.parse_args()
 
-    target = args.target
+    target = "qpp-cpu"
 
     rows = []
-    print("probability\tnoise_model\tn_bits\tshots\ttime_s\tL2_pop\tFro_norm\tFidelity")
+    print(f"{'probability':<11} {'noise_model':<11} {'n_bits':<7} {'shots':<6} {'time_s':<7} {'L2_pop':<10} {'Fro_norm':<10} {'Fidelity'}")
+
 
     # —— noiseless baseline on state-vector back-end ——
     cudaq.set_target(target)
@@ -157,7 +152,7 @@ def main():
 
     # —— save CSV ————————————————————————————————
     os.makedirs("results", exist_ok=True)
-    out = f"results/qftN_{args.init}_{args.shots}_{target}.csv"
+    out = f"results/qftN_{args.init}_{args.shots}_cpu.csv"
     pd.DataFrame(rows, columns=[
         "probability","noise_model","n_bits","shots",
         "time_s","L2_pop","Fro_norm","Fidelity"]).to_csv(out, index=False)

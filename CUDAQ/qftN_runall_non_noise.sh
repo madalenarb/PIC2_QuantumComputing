@@ -25,7 +25,7 @@ for init_state in "${init_states[@]}"; do
   for shots in "${shots_list[@]}"; do
     echo ""
     echo "🌩️  Running NOISY benchmark for init='$init_state', shots=$shots"
-    python3 qftN_benchmark_cpu_noise_model.py --init "$init_state" --shots "$shots" --target "nvidia"
+    #python3 qftN_benchmark_cpu_noise_model.py --init "$init_state" --shots "$shots"
     if [ $? -ne 0 ]; then
       echo "❌ Failed: noisy | $init_state | $shots"
     else
@@ -33,5 +33,7 @@ for init_state in "${init_states[@]}"; do
     fi
   done
 done
+
+
 
 echo -e "\n🎉 All QFT benchmarks completed."
