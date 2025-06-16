@@ -157,7 +157,3 @@ rm -rf Results qft4-results* qft4-*
 * All plotting uses a headless Matplotlib backend – the scripts can run on remote servers without an X-server.
 * Add `--help` to any script for the exhaustive argument list.
 
-## 📖 Detailed Suites
-
-* **CUDA-Q**: see [`cudaq/README.md`](cudaq/README.md)
-* **Qiskit** : see [`qiskit/README.md`](qiskit/README.md)
