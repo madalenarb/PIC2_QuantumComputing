@@ -154,6 +154,5 @@ rm -rf results qft4
 * `environment.yml` pins CUDA 11.8; adjust channels if your driver supports older toolkits.
 * All plotting is headless via Matplotlib—no display required.
 
-Happy benchmarking! 🚀
 
 
