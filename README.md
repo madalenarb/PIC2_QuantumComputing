@@ -8,7 +8,7 @@ This repository hosts two complementary benchmark suites that explore how fastâ€
 
 | Suite       | Stack                             | Focus                                                                                 | Docs                              |
 |-------------|-----------------------------------|---------------------------------------------------------------------------------------|-----------------------------------|
-| **CUDA-Q**  | NVIDIA CUDA-Quantum (`cudaq`)     | High-performance CPU/GPU: state-vector, density-matrix, noise models, GPU monitoring  | [`cudaq/README_cudaq.md`](cudaq/README_cudaq.md)   |
+| **CUDA-Q**  | NVIDIA CUDA-Quantum (`cudaq`)     | High-performance CPU/GPU: state-vector, density-matrix, noise models, GPU monitoring  | [`cudaq/README_cudaq.md`](cudaq/README_cudaq)   |
 | **Qiskit**  | IBM Qiskit 2 + Aer (CPU & GPU)    | Reference sampling runs, noise models, throughput, accuracy comparisons               | [`qiskit/README_qiskit.md`](qiskit/README_qiskit.md) |
 
 ---
