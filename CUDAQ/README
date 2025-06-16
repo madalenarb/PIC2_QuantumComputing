@@ -1,3 +1,4 @@
+````markdown
 # CUDA-Q QFT Simulation & Benchmark Suite 🚀
 
 A curated set of **CUDA-Q** examples that showcase—and stress-test—the *Quantum Fourier Transform* (QFT) on both **CPU** (`qpp-cpu`) and **GPU** (`nvidia`) back-ends. The repo mirrors the Qiskit collection but every script here uses NVIDIA’s CUDA-Q Python API.
