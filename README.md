@@ -19,7 +19,7 @@ This repository hosts two complementary benchmark suites that explore how fastâ€
    ```bash
    git clone <repo-url> QFT-Benchmarks
    cd QFT-Benchmarks
-````
+   ```
 
 2. **Choose your suite**
 
