@@ -92,11 +92,7 @@ This repository hosts two complementary benchmark suites that explore how fast�
 
 *All scripts log tables to the console and save CSVs under `results/` for further analysis.*
 
----
-## 📖 Detailed Suites
 
-* **CUDA-Q**: see [`cudaq/README.md`](cudaq/README.md)
-* **Qiskit** : see [`qiskit/README.md`](qiskit/README.md)
 
   
 Happy benchmarking! 🚀
