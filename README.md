@@ -1,98 +1,93 @@
-# Classical-Simulation Benchmarks for the Quantum Fourier Transform (QFT)
+# Classical-Simulation Benchmarks for the Quantum Fourier Transform&nbsp;(QFT)
 
-This repository hosts two complementary benchmark suites that explore how fast—and how accurately—modern classical simulators can execute the **Quantum Fourier Transform** across a wide range of qubit counts, shot numbers and noise settings.
-
----
-
-## Suites
-
-| Suite       | Stack                             | Focus                                                                                 | Docs                              |
-|-------------|-----------------------------------|---------------------------------------------------------------------------------------|-----------------------------------|
-| **CUDA-Q**  | NVIDIA CUDA-Quantum (`cudaq`)     | High-performance CPU/GPU: state-vector, density-matrix, noise models, GPU monitoring  | [`cudaq/README_cudaq.md`](CUDAQ/README_cudaq.md)   |
-| **Qiskit**  | IBM Qiskit 2 + Aer (CPU & GPU)    | Reference sampling runs, noise models, throughput, accuracy comparisons               | [`qiskit/README_qiskit.md`](testingQiskit/README_qiskit.md) |
+Two complementary benchmark suites explore **how fast** & **how accurately** modern
+classical simulators can execute the **Quantum Fourier Transform** over a broad
+range of qubit counts, shot numbers and noise settings.  
+A third folder, **`data_graph/`**, turns the raw benchmark CSVs into tidy tables
+and publication-ready figures.
 
 ---
 
-## Quick Start
+## 1 · Suites & Tooling
 
-1. **Clone the repo**  
-   ```bash
-   git clone <repo-url> QFT-Benchmarks
-   cd QFT-Benchmarks
-   ```
-
-2. **Choose your suite**
-
-   ```bash
-   cd cudaq      # or: cd qiskit
-   ```
-3. **Create & activate the exact Conda env**
-
-   ```bash
-   # CUDA-Q
-   conda env create -f environment.yml
-   conda activate cuda-quantum
-
-   # Qiskit (CPU)
-   conda env create -f environment_qiskit.yml
-   conda activate qiskit
-
-   # Qiskit (GPU)
-   conda env create -f environment_qiskit_gpu.yml
-   conda activate qiskit-gpu
-   ```
-4. **Sanity-check the install**
-
-   ```bash
-   python - <<'PY'
-   # CUDA-Q
-   import cudaq
-   print("CUDA-Q:", cudaq.__version__, "GPUs:", cudaq.num_available_gpus())
-
-   # Qiskit
-   import qiskit, qiskit_aer
-   print("Qiskit:", qiskit.__version__, "Aer:", qiskit_aer.__version__)
-   PY
-   ```
-5. **Run an example benchmark**
-
-   ```bash
-   python benchmark_QFT_multipleshots.py   # or any other script
-   ```
-
-> **Tip:**
-> • CUDA-Q falls back to its `qpp-cpu` simulator if no NVIDIA GPU is available.
-> • The Qiskit suite has separate CPU/GPU env files.
+| Suite / Folder | Tech stack | Core focus | Detailed docs |
+|----------------|------------|------------|---------------|
+| **CUDA-Q**     | NVIDIA **CUDA-Quantum** (`cudaq`) | High-performance CPU / GPU simulation: state-vector, density-matrix, noise models, **live GPU-utilisation & memory tracking** | [`cudaq/README_cudaq.md`](cudaq/README_cudaq.md) |
+| **Qiskit**     | IBM **Qiskit 2** + **Aer** (CPU & GPU builds) | Reference sampling runs, Aer noise models, throughput & accuracy cross-checks | [`qiskit/README_qiskit.md`](qiskit/README_qiskit.md) |
+| **data_graph** | Python + Pandas + Seaborn | **ETL + Plotting**: merges raw CSVs, generates composite plots for papers / talks | [`data_graph/README_data_graph.md`](data_graph/README_data_graph.md) |
 
 ---
 
-## Directory Layout
+## 2 · Quick Start
+
+```bash
+# 1) grab the repo
+git clone <repo-url> QFT-Benchmarks
+cd QFT-Benchmarks
+
+# 2) choose a suite to start with
+cd cudaq          # or: cd qiskit   |   cd data_graph (for plotting only)
+
+# 3) create & activate the exact Conda env
+conda env create -f environment.yml          # cudaq/
+conda env create -f environment_qiskit.yml   # qiskit/ (CPU)
+conda env create -f environment_qiskit_gpu.yml   # qiskit/ (GPU)
+conda activate <env-name>
+
+# 4) sanity-check the install
+python - <<'PY'
+import cudaq, qiskit, qiskit_aer, sys
+print("CUDA-Q :", getattr(cudaq, "__version__", "n/a"),
+      "| GPUs :", getattr(cudaq, "num_available_gpus", lambda: "n/a")())
+print("Qiskit :", qiskit.__version__, "| Aer :", qiskit_aer.__version__)
+PY
+
+# 5) run a benchmark
+python benchmark_QFT_multipleshots.py        # or any script in the chosen folder
+````
+
+> **Tips**
+> • **CUDA-Q** automatically falls back to its `qpp-cpu` simulator when no NVIDIA
+> GPU is present.
+> • The **Qiskit** suite ships separate *CPU* and *GPU* environment files.
+> • Use `--help` on any script for all available CLI options.
+
+---
+
+## 3 · Repository Layout
 
 ```
 .
-├── cudaq/       # CUDA-Q benchmarks & docs
+├── cudaq/               # CUDA-Q benchmarks & env file
+│   ├── environment.yml
+│   ├── benchmark_QFT_multipleshots.py
+│   ├── …                # more CUDA-Q scripts
 │   └── README_cudaq.md
-├── qiskit/      # Qiskit Aer benchmarks & docs
+├── qiskit/              # Qiskit-Aer benchmarks & env files
+│   ├── environment_qiskit*.yml
+│   ├── benchmark_qft_multiple_shots_improved.py
+│   ├── …                # more Qiskit scripts
 │   └── README_qiskit.md
-└── results/     # Generated CSVs & PNGs (git-ignored)
+├── data_graph/          # CSV merge + graph generation pipeline
+│   ├── merge_csvs.py
+│   ├── plot_benchmarking.ipynb
+│   └── README_data_graph.md
+└── results/             # all generated CSVs / PNGs (git-ignored)
 ```
 
 ---
 
-## What We Measure
+## 4 · Metrics Captured
 
-* **Runtime scaling** – seconds vs. qubits/shots
-* **Throughput** – shots·s⁻¹ for sampling runs
+* **Runtime scaling** — seconds vs qubits / shots
+* **Throughput** — shots · s⁻¹ for sampling runs
 * **Accuracy**
 
-  * L₂-distance between empirical & ideal distributions
-  * Fidelity & Frobenius-norm (density-matrix)
-* **Noise sensitivity** (Depolarizing, amplitude/phase-damping, bit-flip)
-* **GPU utilisation & memory footprint** (live monitoring in CUDA-Q)
+  * L₂-distance vs ideal distribution
+  * Fidelity & Frobenius norm (density-matrix)
+* **Noise sensitivity** — depolarising, amplitude / phase damping, bit-flip
+* **GPU stats** — live utilisation % & VRAM MiB (CUDA-Q on `nvidia` backend)
 
-*All scripts log tables to the console and save CSVs under `results/` for further analysis.*
-
-
-
-  
-Happy benchmarking! 🚀
+All scripts print human-readable tables **and** save tidy CSVs in
+`results/`, ready for further analysis or the automated `data_graph`
+plotting pipeline.
