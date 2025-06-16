@@ -64,7 +64,7 @@ def compute_l2_error(counts, n_qubits, shots):
     return np.linalg.norm(sampled - ideal, ord=2)
 
 
-def make_backend(method: str = "statevector", device: str = "GPU"):
+def make_backend(method: str = "statevector", device: str = "CPU"):
     """Create and return the appropriate backend simulator."""
     if method == "statevector":
         if device == "GPU":
@@ -85,22 +85,77 @@ def make_backend(method: str = "statevector", device: str = "GPU"):
 
     return backend, backend_type
 
+def build_arg_parser():
+    parser = argparse.ArgumentParser(
+        description="Benchmark QFT circuits on Qiskit AerSimulator (CPU/GPU)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    # Simulation parameters
+    sim_group = parser.add_argument_group("Simulation parameters")
+    sim_group.add_argument(
+        "-i", "--init",
+        choices=["zero", "ghz"],
+        default="zero",
+        help="Initial state before QFT"
+    )
+    sim_group.add_argument(
+        "-m", "--method",
+        choices=["statevector", "density_matrix"],
+        default="statevector",
+        help="Simulation method"
+    )
+    sim_group.add_argument(
+        "-d", "--device",
+        choices=["CPU", "GPU"],
+        default="CPU",
+        help="Target device for simulation"
+    )
+
+    # Qubit range
+    range_group = parser.add_argument_group("Qubit range")
+    range_group.add_argument(
+        "-n", "--min-qubits",
+        type=int,
+        default=3,
+        metavar="MIN",
+        help="Minimum number of qubits"
+    )
+    range_group.add_argument(
+        "-N", "--max-qubits",
+        type=int,
+        default=27,
+        metavar="MAX",
+        help="Maximum number of qubits"
+    )
+
+    # Shots configuration
+    shots_group = parser.add_argument_group("Shot configuration")
+    shots_group.add_argument(
+        "-s", "--shots",
+        type=int,
+        nargs="+",
+        default=[2**i for i in range(10, 20)],
+        metavar="SHOTS",
+        help="List of shot counts (e.g. 1024 2048 4096)"
+    )
+
+    # I/O
+    io_group = parser.add_argument_group("Input / Output")
+    io_group.add_argument(
+        "-o", "--output",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Output CSV file path"
+    )
+
+    return parser
+
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--init", type=str, default="zero", choices=["zero", "ghz"],
-                        help="Initial state before QFT (zero or ghz)")
-    parser.add_argument("--method", type=str, default="statevector",
-                        help="Backend simulation method (e.g., statevector, density_matrix)")
-    parser.add_argument("--min_qubits", type=int, default=3, help="Minimum number of qubits")
-    parser.add_argument("--max_qubits", type=int, default=27, help="Maximum number of qubits")
-    parser.add_argument("--shots", type=int, nargs="+", default=[2**i for i in range(10, 20)],
-                        help="List of shot counts (e.g., --shots 1024 2048 4096)")
-    parser.add_argument("--output", type=str, default=None, help="Output CSV file path")
-    parser.add_argument("--device", type=str, default="GPU", choices=["GPU", "CPU"],
-                        help="Target device for simulation (default: GPU)")
-
+    parser = build_arg_parser()
     args = parser.parse_args()
     init_state = args.init
     method = args.method

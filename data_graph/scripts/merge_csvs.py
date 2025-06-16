@@ -2,12 +2,29 @@
 """
 merge_csvs.py — Consolidate QFT benchmark data for both noisy and noiseless cases
 by auto-discovering files under data_csv/noise and data_csv/non_noise.
-Now includes an 'init' column for the zero/ghz style.
+
+New flag:
+  --ignore-cudaq-gpu    if set, any cudaq-gpu data will be omitted entirely.
 """
 
+import argparse
 import pandas as pd
 import re
 from pathlib import Path
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Argument parsing
+# ──────────────────────────────────────────────────────────────────────────────
+parser = argparse.ArgumentParser(
+    description="Merge QFT CSVs into unified noise / no-noise tables"
+)
+parser.add_argument(
+    "--ignore-cudaq-gpu",
+    action="store_true",
+    help="If set, skip any entries whose target would be 'cudaq-gpu'"
+)
+args = parser.parse_args()
+ignore_cudaq_gpu = args.ignore_cudaq_gpu
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Paths
@@ -17,9 +34,8 @@ DATA_DIR      = BASE_DIR / "data_csv"
 NOISE_DIR     = DATA_DIR / "noise"
 NON_NOISE_DIR = DATA_DIR / "non_noise"
 
-OUT_DIR = DATA_DIR / "treated_data"
+OUT_DIR       = DATA_DIR / "treated_data"
 OUT_DIR.mkdir(exist_ok=True, parents=True)
-
 OUT_NON_NOISE = OUT_DIR / "qft_merged_no_noise.csv"
 OUT_NOISE     = OUT_DIR / "qft_merged_noise.csv"
 
@@ -44,20 +60,21 @@ for path in NON_NOISE_DIR.glob("*.csv"):
         print(f"Skipping non-noise file (no match): {path.name}")
         continue
 
-    vendor, device, freq = (g.lower() for g in m.groups())
+    vendor, device, init = (g.lower() for g in m.groups())
     target = f"{vendor}-{device}"
 
+    # honor the ignore flag
+    if ignore_cudaq_gpu and target == "cudaq-gpu":
+        print(f"Ignoring (flagged): {path.name} → target {target}")
+        continue
+
     df = pd.read_csv(path)
-    # rename if needed
     df = df.rename(columns={"l2_norm": "l2_error"})
-
-    # add metadata columns
     df["target"] = target
-    df["init"]   = freq
+    df["init"]   = init
 
-    # select and order exactly:
     no_noise_frames.append(
-        df[["target", "init", "shots", "n_bits", "sim_time_s", "l2_error"]]
+        df[["target","init","shots","n_bits","sim_time_s","l2_error"]]
     )
 
 pd.concat(no_noise_frames, ignore_index=True) \
@@ -79,36 +96,51 @@ for path in NOISE_DIR.glob("*.csv"):
         print(f"Skipping noise file (no match): {path.name}")
         continue
 
-    vendor, freq, device, shots = m.group(1,2,3,4)
-    vendor, freq, device = vendor.lower(), freq.lower(), device.lower()
+    vendor, init, device, shots = m.group(1,2,3,4)
+    vendor, init, device = vendor.lower(), init.lower(), device.lower()
     shots = int(shots)
     target = f"{vendor}-{device}"
 
+    if ignore_cudaq_gpu and target == "cudaq-gpu":
+        print(f"Ignoring (flagged): {path.name} → target {target}")
+        continue
+
     df = pd.read_csv(path)
-    # unify column names across both qiskit & cudaq exports
+    # if you just want to remap those three before normalizing:
+
     df = df.rename(columns={
-        "noise_model": "noise",       # cudaq
-        "time_s":      "time_sampling",  # cudaq
-        "l2_pop":      "l2_error",     # qiskit
-        "L2_pop":      "l2_error",     # cudaq
-        "Fro_norm":    "fro_norm",     # cudaq
-        "fro_norm":    "fro_norm",     # qiskit
-        "Fidelity":    "fidelity",     # cudaq
+        "noise_model": "noise",
+        "time_s":      "time_sampling",
+        "l2_pop":      "l2_error",
+        "L2_pop":      "l2_error",
+        "Fro_norm":    "fro_norm",
+        "fro_norm":    "fro_norm",
+        "Fidelity":    "fidelity",
     })
 
-    # normalize noise-labels
-    df["noise"] = df["noise"].astype(str).apply(normalize_noise_name)
+    df["noise"] = (
+    df["noise"]
+      .astype(str)
+      .replace(
+         regex={
+           r".*Amp.*":   "Amplitude Damping",
+           r".*Depol.*": "Depolarizing",
+           r".*Phase.*": "Phase Damping",
+         }
+      )
+      .apply(normalize_noise_name)
+    )
 
-    # add metadata columns
     df["target"] = target
-    df["init"]   = freq
-    df["shots"]  = shots
+    df["init"] = init
+    df["target"]  = df["target"].astype(str).apply(normalize_noise_name)
+    df["init"]    = df["init"].astype(str).apply(normalize_noise_name)
+    df["shots"]   = shots
 
-    # select and order exactly (dropping time_density):
     noise_frames.append(
         df[[
-            "target", "init", "shots", "n_bits", "noise", "probability",
-            "time_sampling", "l2_error", "fro_norm", "fidelity"
+            "noise","target","init","shots","n_bits","probability",
+            "time_sampling","l2_error","fro_norm","fidelity"
         ]]
     )
 

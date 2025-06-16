@@ -1,0 +1,152 @@
+# CUDA-Q QFT Simulation & Benchmark Suite 🚀
+
+A curated set of **CUDA-Q** examples that showcase – and stress-test – the *Quantum Fourier Transform* (QFT) on both **CPU** (`qpp-cpu`) and **GPU** (`nvidia`) back-ends.
+The repo mirrors the structure of the Qiskit collection, but every script here is powered by NVIDIA’s CUDA-Q Python API.
+
+---
+
+## 0 · Quick start
+
+```bash
+# 1) clone / unzip this repository …
+
+# 2) create *exactly* the same environment we used
+conda env create -f environment.yml          # -> creates “cuda-quantum”
+conda activate cuda-quantum
+
+# 3) sanity-check the install
+python - <<'PY'
+import cudaq, sys
+print("CUDA-Q version :", cudaq.__version__)
+print("Detected GPUs  :", cudaq.num_available_gpus())
+PY
+```
+
+> **Want a lean CPU-only setup?**
+> Remove every `nvidia-*`, `cuda-*`, `cu*` line from `environment.yml`, create a fresh env, and CUDA-Q will automatically fall back to its single-threaded *QPP-CPU* simulator.
+
+---
+
+## 1 · Environment overview
+
+| Environment        | Purpose                                                                     | How it’s created                      |
+| ------------------ | --------------------------------------------------------------------------- | ------------------------------------- |
+| **`cuda-quantum`** | Full GPU tool-chain: CUDA 11.8, cuQuantum, cuTensor, CUDA-Q + plotting libs | `conda env create -f environment.yml` |
+
+Everything else (NumPy 2.2, pandas 2.2, matplotlib 3.10, seaborn 0.13, …) is pinned inside *environment.yml* 🗂️ .
+
+---
+
+## 2 · Script catalogue
+
+|  #  | Script                              | Purpose / highlights                                                                         |
+| :-: | :---------------------------------- | :------------------------------------------------------------------------------------------- |
+|  1  | `1_MaximallyEntangled.py`           | Minimal **Bell-pair** kernel – great for sanity checks                                       |
+|  2  | `qft3.py`                           | 3-, 4-, 5-qubit GHZ→QFT *state-vector* demo + fidelity                                       |
+|  3  | `qft3_noise_model.py`               | Interactive 3-qubit QFT with a selectable **noise model**                                    |
+|  4  | `qft4.py`                           | 4-qubit GHZ→QFT + histogram CSV/PNG export                                                   |
+|  5  | `qftN.py`                           | Run an arbitrary-size QFT, just for *quick* experiments                                      |
+|  6  | `benchmark_QFT_multipleshots.py`    | **Main benchmark** – CPU *or* GPU, sampling **or** state-vector, single or multi-shot sweep  |
+|  7  | `benchmark_qftN_cpu_noise_model.py` | CPU density-matrix engine, sweeps 4 noise channels & probabilities                           |
+|  8  | `benchmark_qftN_memory_track.py`    | GPU benchmark that **monitors live utilisation & VRAM** (requires `pynvml`)                  |
+
+---
+
+## 3 · Running the examples
+
+### 3.1  *Tiny sanity checks*
+
+```bash
+python 1_MaximallyEntangled.py        # 2-qubit Bell pair
+python qft3.py                        # 3–5-qubit GHZ→QFT demo
+python qft3_noise_model.py            # choose a noise model interactively
+python qft4.py                        # 4-qubit QFT with histogram CSV
+```
+
+---
+
+### 3.2  `benchmark_QFT_multipleshots.py`
+
+Benchmarks **sampling** *or* **state-vector** on either backend and arbitrary shot counts.
+
+```bash
+# sampling benchmark, GPU, 131 072 shots
+python benchmark_QFT_multipleshots.py \
+  --target nvidia              \
+  --init   zero                \
+  --method sample              \
+  --shots  131072
+
+# full state-vector sweep on CPU back-end (up to 21 qubits)
+python benchmark_QFT_multipleshots.py \
+  --target qpp-cpu            \
+  --init   ghz                \
+  --method statevector        \
+  --multi                     # ⇒ shots = 2^12 … 2^19
+```
+
+Key CLI flags (identical to the Qiskit version):
+
+| Flag         | Meaning                                               | Default  |
+| ------------ | ----------------------------------------------------- | -------- |
+| `--target`   | `qpp-cpu` or `nvidia`                                 | `nvidia` |
+| `--init`     | `zero` \| `ghz`                                       | `zero`   |
+| `--method`   | `sample` \| `statevector`                             | `sample` |
+| `--max-bits` | Max qubit register size (GPU 28 / CPU 21)             | auto     |
+| `--shots`    | Single shot count (mutually exclusive with `--multi`) | 131 072  |
+| `--multi`    | Do the full shot sweep (`2^12`…`2^19`)                | –        |
+
+---
+
+### 3.3  `benchmark_qftN_cpu_noise_model.py`
+
+Runs a **noiseless** CPU state-vector baseline, then switches to the CPU *density-matrix* engine and sweeps four noise channels.
+
+```bash
+python benchmark_qftN_cpu_noise_model.py \
+  --init ghz  --shots 16384 \
+  --max-bits 10 \
+  --probs 0.01 0.05 0.1
+```
+
+Outputs → `results/qftN_<init>_<shots>_cpu.csv` with `Fidelity`, `Fro_norm`, `L2_pop`.
+
+---
+
+### 3.4  `benchmark_qftN_memory_track.py`
+
+GPU-only benchmark that samples **pynvml** every 0.1 s to capture *average core %, average mem %, actual MiB*:
+
+```bash
+python benchmark_qftN_memory_track.py \
+  --shots  4096 \
+  --max-bits 27 \
+  --out-dir results/GPUmonitored
+```
+
+Saves both CSV and XLSX (for quick Excel drag-and-drop).
+
+---
+
+## 4 · Outputs & house-keeping
+
+* All benchmarks dump their CSVs under **`results/`**.
+* Histogram images & diagrams live under `results/qft4/` (created on the fly).
+
+Clean everything:
+
+```bash
+rm -rf results qft4
+```
+
+---
+
+## 5 · Extra notes & best practices
+
+* Always **warm-up** each CUDA-Q kernel with 32 *dummy* shots – scripts already do this for you.
+* GPU benchmarks are memory-intensive; if you hit `RuntimeError: requested size is too big`, reduce `--max-bits` or switch to sampling mode.
+* For state-vector work you **must** have `cudaq >= 0.9.1`; otherwise `cudaq.simulate()` is unavailable.
+* The provided `environment.yml` pins CUDA 11.8 – adjust the channel tag if your driver only supports an older toolkit.
+* All plotting uses headless Matplotlib; no display is necessary (good for SSH servers).
+
+
